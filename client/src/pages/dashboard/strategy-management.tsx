@@ -573,8 +573,18 @@ function CallRow({
               {Number(call.gainPercent) >= 0 ? "+" : ""}{Number(call.gainPercent).toFixed(2)}%
             </span>
           )}
-          <span>{call.callDate ? new Date(call.callDate).toLocaleDateString("en-IN") : ""}</span>
+          <span>
+            {call.createdAt
+              ? `${new Date(call.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })} ${new Date(call.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`
+              : call.callDate ? new Date(call.callDate).toLocaleDateString("en-IN") : ""}
+          </span>
+          {!isActive && call.exitDate && (
+            <span>Closed: {new Date(call.exitDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })} {new Date(call.exitDate).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}</span>
+          )}
         </div>
+        {call.rationale && (
+          <p className="text-xs text-muted-foreground mt-1 italic">{call.rationale}</p>
+        )}
       </div>
       {isActive && (
         <div className="flex items-center gap-1">
@@ -660,8 +670,15 @@ function PositionRow({
           {position.stopLoss && <span>SL: {position.stopLoss}</span>}
           {position.lots && <span>Lots: {position.lots}</span>}
           {position.expiry && <span>Exp: {position.expiry}</span>}
-          <span>{position.createdAt ? new Date(position.createdAt).toLocaleDateString("en-IN") : ""}</span>
+          <span>
+            {position.createdAt
+              ? `${new Date(position.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })} ${new Date(position.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`
+              : ""}
+          </span>
         </div>
+        {position.rationale && (
+          <p className="text-xs text-muted-foreground mt-1 italic">{position.rationale}</p>
+        )}
       </div>
       {isActive && (
         <div className="flex items-center gap-1">
@@ -1153,6 +1170,10 @@ function AddStockSheet({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (form.isPublished && !form.rationale.trim()) {
+      toast({ title: "Rationale is required to publish a call", variant: "destructive" });
+      return;
+    }
     mutation.mutate({
       ...form,
       strategyId: strategy?.id,
@@ -1252,13 +1273,17 @@ function AddStockSheet({
             />
           </div>
           <div className="space-y-1.5">
-            <Label>Rationale</Label>
+            <Label>Rationale <span className="text-destructive">*</span></Label>
             <Textarea
               value={form.rationale}
               onChange={(e) => setForm({ ...form, rationale: e.target.value })}
               rows={3}
+              placeholder="Type your rationale for this call (required to publish)"
               data-testid="input-rationale"
             />
+            {form.isPublished && !form.rationale.trim() && (
+              <p className="text-xs text-destructive">Rationale is required to publish</p>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <Checkbox
@@ -1323,6 +1348,10 @@ function AddPositionSheet({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (form.isPublished && !form.rationale.trim()) {
+      toast({ title: "Rationale is required to publish a position", variant: "destructive" });
+      return;
+    }
     mutation.mutate({
       ...form,
       strategyId: strategy?.id,
@@ -1465,13 +1494,17 @@ function AddPositionSheet({
             />
           </div>
           <div className="space-y-1.5">
-            <Label>Rationale</Label>
+            <Label>Rationale <span className="text-destructive">*</span></Label>
             <Textarea
               value={form.rationale}
               onChange={(e) => setForm({ ...form, rationale: e.target.value })}
               rows={3}
+              placeholder="Type your rationale for this position (required to publish)"
               data-testid="input-position-rationale"
             />
+            {form.isPublished && !form.rationale.trim() && (
+              <p className="text-xs text-destructive">Rationale is required to publish</p>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <Checkbox

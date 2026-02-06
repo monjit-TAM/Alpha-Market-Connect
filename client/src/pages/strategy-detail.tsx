@@ -272,7 +272,7 @@ export default function StrategyDetail() {
                       <th className="pb-2 font-medium text-muted-foreground">P&L %</th>
                       <th className="pb-2 font-medium text-muted-foreground">Target</th>
                       <th className="pb-2 font-medium text-muted-foreground">Stop Loss</th>
-                      <th className="pb-2 font-medium text-muted-foreground">Date</th>
+                      <th className="pb-2 font-medium text-muted-foreground">Date & Time</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -281,36 +281,54 @@ export default function StrategyDetail() {
                       const buyPrice = Number(call.entryPrice || call.buyRangeStart || 0);
                       const pnl = lp && buyPrice > 0 ? ((lp.ltp - buyPrice) / buyPrice) * 100 : null;
                       return (
-                        <tr key={call.id} className="border-b last:border-0" data-testid={`row-call-${call.id}`}>
-                          <td className="py-2 font-medium">{call.stockName}</td>
-                          <td className="py-2">{"\u20B9"}{call.entryPrice || call.buyRangeStart}</td>
-                          <td className="py-2" data-testid={`ltp-${call.id}`}>
-                            {lp ? (
-                              <span className="flex items-center gap-1">
-                                {"\u20B9"}{lp.ltp.toFixed(2)}
-                                {lp.change >= 0 ? (
-                                  <ArrowUp className="w-3 h-3 text-green-600 dark:text-green-400" />
-                                ) : (
-                                  <ArrowDown className="w-3 h-3 text-red-600 dark:text-red-400" />
-                                )}
-                              </span>
-                            ) : (
-                              <span className="text-muted-foreground">--</span>
-                            )}
-                          </td>
-                          <td className="py-2" data-testid={`pnl-${call.id}`}>
-                            {pnl !== null ? (
-                              <span className={pnl >= 0 ? "text-green-600 dark:text-green-400 font-medium" : "text-red-600 dark:text-red-400 font-medium"}>
-                                {pnl >= 0 ? "+" : ""}{pnl.toFixed(2)}%
-                              </span>
-                            ) : "--"}
-                          </td>
-                          <td className="py-2">{call.targetPrice ? `\u20B9${call.targetPrice}` : "--"}</td>
-                          <td className="py-2">{call.stopLoss ? `\u20B9${call.stopLoss}` : "--"}</td>
-                          <td className="py-2 text-xs">
-                            {call.callDate ? new Date(call.callDate).toLocaleDateString("en-IN") : "--"}
-                          </td>
-                        </tr>
+                        <>
+                          <tr key={call.id} className="border-b last:border-0" data-testid={`row-call-${call.id}`}>
+                            <td className="py-2 font-medium">{call.stockName}</td>
+                            <td className="py-2">{"\u20B9"}{call.entryPrice || call.buyRangeStart}</td>
+                            <td className="py-2" data-testid={`ltp-${call.id}`}>
+                              {lp ? (
+                                <span className="flex items-center gap-1">
+                                  {"\u20B9"}{lp.ltp.toFixed(2)}
+                                  {lp.change >= 0 ? (
+                                    <ArrowUp className="w-3 h-3 text-green-600 dark:text-green-400" />
+                                  ) : (
+                                    <ArrowDown className="w-3 h-3 text-red-600 dark:text-red-400" />
+                                  )}
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">--</span>
+                              )}
+                            </td>
+                            <td className="py-2" data-testid={`pnl-${call.id}`}>
+                              {pnl !== null ? (
+                                <span className={pnl >= 0 ? "text-green-600 dark:text-green-400 font-medium" : "text-red-600 dark:text-red-400 font-medium"}>
+                                  {pnl >= 0 ? "+" : ""}{pnl.toFixed(2)}%
+                                </span>
+                              ) : "--"}
+                            </td>
+                            <td className="py-2">{call.targetPrice ? `\u20B9${call.targetPrice}` : "--"}</td>
+                            <td className="py-2">{call.stopLoss ? `\u20B9${call.stopLoss}` : "--"}</td>
+                            <td className="py-2 text-xs">
+                              {call.createdAt
+                                ? new Date(call.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+                                : call.callDate
+                                  ? new Date(call.callDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+                                  : "--"}
+                              {call.createdAt && (
+                                <span className="block text-muted-foreground">
+                                  {new Date(call.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                          {call.rationale && (
+                            <tr key={`${call.id}-rationale`} className="border-b last:border-0">
+                              <td colSpan={7} className="py-1.5 px-2">
+                                <p className="text-xs text-muted-foreground italic">{call.rationale}</p>
+                              </td>
+                            </tr>
+                          )}
+                        </>
                       );
                     })}
                   </tbody>
@@ -336,24 +354,53 @@ export default function StrategyDetail() {
                       <th className="pb-2 font-medium text-muted-foreground">Buy Price</th>
                       <th className="pb-2 font-medium text-muted-foreground">Sell Price</th>
                       <th className="pb-2 font-medium text-muted-foreground">Gain/Loss</th>
-                      <th className="pb-2 font-medium text-muted-foreground">Call Date</th>
+                      <th className="pb-2 font-medium text-muted-foreground">Created</th>
+                      <th className="pb-2 font-medium text-muted-foreground">Closed</th>
                     </tr>
                   </thead>
                   <tbody>
                     {closedCalls.map((call) => (
-                      <tr key={call.id} className="border-b last:border-0">
-                        <td className="py-2 font-medium">{call.stockName}</td>
-                        <td className="py-2">{"\u20B9"}{call.entryPrice || call.buyRangeStart}</td>
-                        <td className="py-2">{call.sellPrice ? `\u20B9${call.sellPrice}` : "--"}</td>
-                        <td className="py-2">
-                          <span className={Number(call.gainPercent) >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
-                            {call.gainPercent ? `${call.gainPercent}%` : "--"}
-                          </span>
-                        </td>
-                        <td className="py-2 text-xs">
-                          {call.callDate ? new Date(call.callDate).toLocaleDateString("en-IN") : "--"}
-                        </td>
-                      </tr>
+                      <>
+                        <tr key={call.id} className="border-b last:border-0" data-testid={`row-closed-call-${call.id}`}>
+                          <td className="py-2 font-medium">{call.stockName}</td>
+                          <td className="py-2">{"\u20B9"}{call.entryPrice || call.buyRangeStart}</td>
+                          <td className="py-2">{call.sellPrice ? `\u20B9${call.sellPrice}` : "--"}</td>
+                          <td className="py-2">
+                            <span className={Number(call.gainPercent) >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
+                              {call.gainPercent ? `${call.gainPercent}%` : "--"}
+                            </span>
+                          </td>
+                          <td className="py-2 text-xs">
+                            {call.createdAt
+                              ? new Date(call.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+                              : call.callDate
+                                ? new Date(call.callDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+                                : "--"}
+                            {call.createdAt && (
+                              <span className="block text-muted-foreground">
+                                {new Date(call.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2 text-xs">
+                            {call.exitDate
+                              ? new Date(call.exitDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+                              : "--"}
+                            {call.exitDate && (
+                              <span className="block text-muted-foreground">
+                                {new Date(call.exitDate).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                        {call.rationale && (
+                          <tr key={`${call.id}-rationale`} className="border-b last:border-0">
+                            <td colSpan={6} className="py-1.5 px-2">
+                              <p className="text-xs text-muted-foreground italic">{call.rationale}</p>
+                            </td>
+                          </tr>
+                        )}
+                      </>
                     ))}
                   </tbody>
                 </table>

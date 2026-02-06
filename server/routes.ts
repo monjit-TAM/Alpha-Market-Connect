@@ -483,6 +483,9 @@ export async function registerRoutes(
 
   app.post("/api/strategies/:id/calls", requireAdvisor, async (req, res) => {
     try {
+      if (req.body.isPublished && (!req.body.rationale || !req.body.rationale.trim())) {
+        return res.status(400).send("Rationale is required to publish a call");
+      }
       const c = await storage.createCall({
         ...req.body,
         strategyId: req.params.id,
@@ -495,6 +498,9 @@ export async function registerRoutes(
 
   app.post("/api/strategies/:id/positions", requireAdvisor, async (req, res) => {
     try {
+      if (req.body.isPublished && (!req.body.rationale || !req.body.rationale.trim())) {
+        return res.status(400).send("Rationale is required to publish a position");
+      }
       const p = await storage.createPosition({
         ...req.body,
         strategyId: req.params.id,
