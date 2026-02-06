@@ -95,7 +95,7 @@ export function Navbar() {
                       </DropdownMenuItem>
                     </Link>
                   )}
-                  <Link href="/profile">
+                  <Link href="/dashboard/profile">
                     <DropdownMenuItem data-testid="menu-profile">
                       <User className="w-4 h-4 mr-2" />
                       Profile

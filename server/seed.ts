@@ -13,13 +13,7 @@ async function hashPassword(password: string): Promise<string> {
 }
 
 export async function seed() {
-  const existingAdvisors = await db.select().from(users).where(eq(users.role, "advisor"));
-  if (existingAdvisors.length > 0) return;
-
-  const advisorPassword = await hashPassword("advisor123");
-  const investorPassword = await hashPassword("investor123");
   const adminPassword = await hashPassword("admin123");
-
   const existingAdmin = await db.select().from(users).where(eq(users.role, "admin"));
   if (existingAdmin.length === 0) {
     await db.insert(users).values({
@@ -30,7 +24,23 @@ export async function seed() {
       companyName: "AlphaMarket Admin",
       isApproved: true,
     });
+    console.log("[Seed] Admin user created");
   }
+
+  const existingAdvisors = await db.select().from(users).where(eq(users.role, "advisor"));
+  if (existingAdvisors.length > 0) {
+    const unapproved = existingAdvisors.filter(a => !a.isApproved);
+    if (unapproved.length > 0) {
+      for (const a of unapproved) {
+        await db.update(users).set({ isApproved: true }).where(eq(users.id, a.id));
+      }
+      console.log(`[Seed] Approved ${unapproved.length} existing advisors`);
+    }
+    return;
+  }
+
+  const advisorPassword = await hashPassword("advisor123");
+  const investorPassword = await hashPassword("investor123");
 
   const [advisor1] = await db.insert(users).values({
     username: "stokwiz",
