@@ -279,7 +279,11 @@ export default function StrategyDetail() {
                     {activeCalls.map((call) => {
                       const lp = livePrices?.[call.stockName];
                       const buyPrice = Number(call.entryPrice || call.buyRangeStart || 0);
-                      const pnl = lp && buyPrice > 0 ? ((lp.ltp - buyPrice) / buyPrice) * 100 : null;
+                      const targetPrice = Number(call.targetPrice || 0);
+                      const isSell = call.action === "Sell";
+                      const pnl = buyPrice > 0 && targetPrice > 0
+                        ? (isSell ? ((buyPrice - targetPrice) / buyPrice) * 100 : ((targetPrice - buyPrice) / buyPrice) * 100)
+                        : null;
                       return (
                         <>
                           <tr key={call.id} className="border-b last:border-0" data-testid={`row-call-${call.id}`}>

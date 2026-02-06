@@ -570,7 +570,11 @@ function CallRow({
 }) {
   const isActive = call.status === "Active";
   const buyPrice = Number(call.entryPrice || call.buyRangeStart || 0);
-  const pnl = livePrice && buyPrice > 0 ? ((livePrice.ltp - buyPrice) / buyPrice) * 100 : null;
+  const targetPrice = Number(call.targetPrice || 0);
+  const isSell = call.action === "Sell";
+  const pnl = buyPrice > 0 && targetPrice > 0
+    ? (isSell ? ((buyPrice - targetPrice) / buyPrice) * 100 : ((targetPrice - buyPrice) / buyPrice) * 100)
+    : null;
 
   return (
     <div
@@ -662,12 +666,12 @@ function PositionRow({
   const { toast } = useToast();
   const isActive = position.status === "Active";
   const entryPx = Number(position.entryPrice || 0);
+  const targetPx = Number(position.target || 0);
   const isFnO = position.strikePrice && position.expiry;
-  const effectiveLTP = isFnO && optionPremiumLTP != null ? optionPremiumLTP : (livePrice?.ltp ?? null);
-  const pnl = effectiveLTP != null && entryPx > 0
+  const pnl = entryPx > 0 && targetPx > 0
     ? (position.buySell === "Sell"
-        ? ((entryPx - effectiveLTP) / entryPx) * 100
-        : ((effectiveLTP - entryPx) / entryPx) * 100)
+        ? ((entryPx - targetPx) / entryPx) * 100
+        : ((targetPx - entryPx) / entryPx) * 100)
     : null;
 
   const closeMutation = useMutation({
@@ -700,21 +704,13 @@ function PositionRow({
           {isActive && (position as any).publishMode === "watchlist" && <Badge variant="secondary">Watchlist</Badge>}
           {isActive && (position as any).publishMode === "live" && <Badge variant="default">Live</Badge>}
           {isActive && !(position as any).publishMode && !position.isPublished && <Badge variant="secondary">Draft</Badge>}
-          {isActive && effectiveLTP != null && (
+          {isActive && livePrice != null && !isFnO && (
             <span className="flex items-center gap-1 text-xs font-medium" data-testid={`ltp-pos-${position.id}`}>
-              {"\u20B9"}{effectiveLTP.toFixed(2)}
-              {isFnO && optionPremiumLTP != null ? (
-                pnl !== null && pnl >= 0 ? (
-                  <ArrowUp className="w-3 h-3 text-green-600 dark:text-green-400" />
-                ) : (
-                  <ArrowDown className="w-3 h-3 text-red-600 dark:text-red-400" />
-                )
-              ) : livePrice && (
-                livePrice.change >= 0 ? (
-                  <ArrowUp className="w-3 h-3 text-green-600 dark:text-green-400" />
-                ) : (
-                  <ArrowDown className="w-3 h-3 text-red-600 dark:text-red-400" />
-                )
+              {"\u20B9"}{livePrice.ltp.toFixed(2)}
+              {livePrice.change >= 0 ? (
+                <ArrowUp className="w-3 h-3 text-green-600 dark:text-green-400" />
+              ) : (
+                <ArrowDown className="w-3 h-3 text-red-600 dark:text-red-400" />
               )}
             </span>
           )}

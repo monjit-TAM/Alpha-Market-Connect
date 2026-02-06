@@ -387,6 +387,84 @@ export async function getLivePrices(
   return results;
 }
 
+function parseCSVLine(line: string): string[] {
+  const result: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"' && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else if (ch === '"') {
+        inQuotes = false;
+      } else {
+        current += ch;
+      }
+    } else {
+      if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ',') {
+        result.push(current);
+        current = "";
+      } else {
+        current += ch;
+      }
+    }
+  }
+  result.push(current);
+  return result;
+}
+
+let cachedInstruments: { data: any[]; fetchedAt: number } | null = null;
+const INSTRUMENTS_CACHE_TTL = 6 * 60 * 60 * 1000;
+
+async function getInstrumentsCSV(): Promise<any[]> {
+  if (cachedInstruments && Date.now() - cachedInstruments.fetchedAt < INSTRUMENTS_CACHE_TTL) {
+    return cachedInstruments.data;
+  }
+  try {
+    const url = "https://growwapi-assets.groww.in/instruments/instrument.csv";
+    const response = await fetch(url);
+    if (!response.ok) {
+      console.error(`[Groww] Instruments CSV error: ${response.status}`);
+      return cachedInstruments?.data || [];
+    }
+    const text = await response.text();
+    const lines = text.split("\n");
+    const headers = lines[0].split(",").map(h => h.trim());
+    const segmentIdx = headers.indexOf("segment");
+    const expiryIdx = headers.indexOf("expiry_date");
+    const underlyingIdx = headers.indexOf("underlying_symbol");
+    const exchangeIdx = headers.indexOf("exchange");
+
+    const instruments: any[] = [];
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.trim()) continue;
+      const values = parseCSVLine(line);
+      if (values.length < headers.length) continue;
+      const segment = values[segmentIdx]?.trim() || "";
+      const expiry = values[expiryIdx]?.trim() || "";
+      const underlying = values[underlyingIdx]?.trim() || "";
+      if (segment === "FNO" && expiry && underlying) {
+        const obj: any = {};
+        headers.forEach((h, idx) => {
+          obj[h] = values[idx]?.trim() || "";
+        });
+        instruments.push(obj);
+      }
+    }
+    cachedInstruments = { data: instruments, fetchedAt: Date.now() };
+    console.log(`[Groww] Instruments CSV loaded: ${instruments.length} FNO instruments`);
+    return instruments;
+  } catch (err) {
+    console.error("[Groww] Error fetching instruments CSV:", err);
+    return cachedInstruments?.data || [];
+  }
+}
+
 export async function getOptionChainExpiries(
   exchange: string,
   underlying: string,
@@ -394,15 +472,21 @@ export async function getOptionChainExpiries(
   month: number
 ): Promise<string[]> {
   try {
-    const accessToken = await getAccessToken();
-    const url = `${GROWW_API_BASE}/option-chain/exchange/${exchange}/underlying/${underlying}/expiries?year=${year}&month=${month}`;
-    const response = await fetch(url, { headers: getHeaders(accessToken) });
-    if (!response.ok) {
-      console.error(`[Groww] Expiries error: ${response.status}`);
-      return [];
+    const instruments = await getInstrumentsCSV();
+    const today = new Date().toISOString().split("T")[0];
+
+    const expiriesSet = new Set<string>();
+    for (const inst of instruments) {
+      if (
+        inst.exchange === exchange &&
+        inst.underlying_symbol === underlying &&
+        inst.expiry_date >= today
+      ) {
+        expiriesSet.add(inst.expiry_date);
+      }
     }
-    const data = await response.json();
-    return data.payload || data || [];
+    const expiries = Array.from(expiriesSet).sort();
+    return expiries;
   } catch (err) {
     console.error("[Groww] Error fetching expiries:", err);
     return [];
@@ -451,33 +535,63 @@ export async function getOptionChain(
     if (!data.payload) return [];
 
     const strikes: OptionChainStrike[] = [];
-    const chainData = data.payload.option_chain || data.payload;
 
-    if (Array.isArray(chainData)) {
-      for (const item of chainData) {
+    if (data.payload.strikes && typeof data.payload.strikes === "object") {
+      for (const [strikePriceStr, strikeData] of Object.entries(data.payload.strikes as Record<string, any>)) {
+        const sp = Number(strikePriceStr);
+        if (isNaN(sp)) continue;
         strikes.push({
-          strikePrice: item.strike_price || item.strikePrice,
-          ce: item.ce ? {
-            ltp: item.ce.last_price || item.ce.ltp || 0,
-            change: item.ce.day_change || item.ce.change || 0,
-            oi: item.ce.open_interest || item.ce.oi || 0,
-            volume: item.ce.volume || 0,
-            iv: item.ce.iv,
-            bidPrice: item.ce.bid_price,
-            askPrice: item.ce.offer_price,
-            tradingSymbol: item.ce.trading_symbol,
+          strikePrice: sp,
+          ce: strikeData.CE ? {
+            ltp: strikeData.CE.ltp || 0,
+            change: strikeData.CE.day_change || 0,
+            oi: strikeData.CE.open_interest || 0,
+            volume: strikeData.CE.volume || 0,
+            iv: strikeData.CE.greeks?.iv,
+            bidPrice: strikeData.CE.bid_price,
+            askPrice: strikeData.CE.offer_price,
+            tradingSymbol: strikeData.CE.trading_symbol,
           } : undefined,
-          pe: item.pe ? {
-            ltp: item.pe.last_price || item.pe.ltp || 0,
-            change: item.pe.day_change || item.pe.change || 0,
-            oi: item.pe.open_interest || item.pe.oi || 0,
-            volume: item.pe.volume || 0,
-            iv: item.pe.iv,
-            bidPrice: item.pe.bid_price,
-            askPrice: item.pe.offer_price,
-            tradingSymbol: item.pe.trading_symbol,
+          pe: strikeData.PE ? {
+            ltp: strikeData.PE.ltp || 0,
+            change: strikeData.PE.day_change || 0,
+            oi: strikeData.PE.open_interest || 0,
+            volume: strikeData.PE.volume || 0,
+            iv: strikeData.PE.greeks?.iv,
+            bidPrice: strikeData.PE.bid_price,
+            askPrice: strikeData.PE.offer_price,
+            tradingSymbol: strikeData.PE.trading_symbol,
           } : undefined,
         });
+      }
+    } else {
+      const chainData = data.payload.option_chain || data.payload;
+      if (Array.isArray(chainData)) {
+        for (const item of chainData) {
+          strikes.push({
+            strikePrice: item.strike_price || item.strikePrice,
+            ce: item.ce ? {
+              ltp: item.ce.last_price || item.ce.ltp || 0,
+              change: item.ce.day_change || item.ce.change || 0,
+              oi: item.ce.open_interest || item.ce.oi || 0,
+              volume: item.ce.volume || 0,
+              iv: item.ce.iv,
+              bidPrice: item.ce.bid_price,
+              askPrice: item.ce.offer_price,
+              tradingSymbol: item.ce.trading_symbol,
+            } : undefined,
+            pe: item.pe ? {
+              ltp: item.pe.last_price || item.pe.ltp || 0,
+              change: item.pe.day_change || item.pe.change || 0,
+              oi: item.pe.open_interest || item.pe.oi || 0,
+              volume: item.pe.volume || 0,
+              iv: item.pe.iv,
+              bidPrice: item.pe.bid_price,
+              askPrice: item.pe.offer_price,
+              tradingSymbol: item.pe.trading_symbol,
+            } : undefined,
+          });
+        }
       }
     }
 
