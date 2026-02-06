@@ -71,7 +71,7 @@ export default function StrategyDetail() {
       return res.json();
     },
     enabled: canViewActiveCalls && activeCallSymbols.length > 0,
-    refetchInterval: 15000,
+    refetchInterval: ["Future", "Option", "CommodityFuture"].includes(strategy?.type || "") ? 5000 : 15000,
   });
 
   const handleSubscribe = () => {

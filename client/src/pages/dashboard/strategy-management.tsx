@@ -420,7 +420,7 @@ function StrategyCallsPanel({ strategy }: { strategy: Strategy }) {
       return res.json();
     },
     enabled: activeSymbols.length > 0,
-    refetchInterval: 15000,
+    refetchInterval: ["Future", "Option", "CommodityFuture"].includes(strategy.type) ? 5000 : 15000,
   });
 
   const hasPositions = (positions?.length || 0) > 0;
