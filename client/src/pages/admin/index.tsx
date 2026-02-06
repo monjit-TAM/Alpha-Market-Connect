@@ -12,14 +12,16 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
-import { Users, BarChart3, LayoutDashboard, LogOut } from "lucide-react";
+import { Users, BarChart3, LayoutDashboard, LogOut, Settings } from "lucide-react";
 
 import AdminAdvisors from "./admin-advisors";
 import AdminStrategies from "./admin-strategies";
+import AdminSettings from "./admin-settings";
 
 const sidebarItems = [
   { title: "Advisors", icon: Users, path: "/admin" },
   { title: "Strategies", icon: BarChart3, path: "/admin/strategies" },
+  { title: "Settings", icon: Settings, path: "/admin/settings" },
 ];
 
 export default function AdminDashboard() {
@@ -49,6 +51,7 @@ export default function AdminDashboard() {
 
   const renderPage = () => {
     if (location === "/admin/strategies") return <AdminStrategies />;
+    if (location === "/admin/settings") return <AdminSettings />;
     return <AdminAdvisors />;
   };
 

@@ -9,7 +9,7 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { sendRegistrationNotification, sendUserWelcomeEmail, sendPasswordResetEmail, sendAdvisorAgreementEmail } from "./email";
-import { getLiveQuote, getLivePrices } from "./groww";
+import { getLiveQuote, getLivePrices, setGrowwAccessToken, getGrowwTokenStatus } from "./groww";
 import type { Plan } from "@shared/schema";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -854,6 +854,28 @@ export async function registerRoutes(
     try {
       await storage.deleteStrategy(req.params.id);
       res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.get("/api/admin/groww-token-status", requireAdmin, async (_req, res) => {
+    try {
+      const status = getGrowwTokenStatus();
+      res.json(status);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.post("/api/admin/groww-token", requireAdmin, async (req, res) => {
+    try {
+      const { token } = req.body;
+      if (!token || typeof token !== "string" || token.trim().length < 10) {
+        return res.status(400).json({ error: "Please provide a valid access token" });
+      }
+      const result = setGrowwAccessToken(token.trim());
+      res.json(result);
     } catch (err: any) {
       res.status(500).send(err.message);
     }

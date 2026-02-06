@@ -46,6 +46,10 @@ AlphaMarket is a SaaS marketplace platform connecting SEBI-registered Indian adv
 - Added Market Outlook and Learn navigation links to navbar
 - Integrated SendGrid email notifications on new user registrations
 - Integrated Replit Object Storage for SEBI certificate file uploads
+- Added admin Settings page (/admin/settings) with Groww access token management
+- Groww token supports dual modes: manual paste (admin portal) and automatic API Key+Secret flow
+- Admin can view token status (active/expired/none), source, set time, and expiry
+- Added GET /api/admin/groww-token-status and POST /api/admin/groww-token admin routes
 
 ## Project Structure
 ```

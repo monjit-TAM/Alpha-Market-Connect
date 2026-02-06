@@ -54,10 +54,52 @@ const CACHE_TTL = 5000;
 
 let cachedAccessToken: string | null = null;
 let tokenExpiry: number = 0;
+let tokenSetAt: number = 0;
+let tokenSource: "manual" | "api_key_secret" | "none" = "none";
 
 function generateChecksum(secret: string, timestamp: string): string {
   const input = secret + timestamp;
   return crypto.createHash("sha256").update(input).digest("hex");
+}
+
+function computeExpiryMs(): number {
+  const now = new Date();
+  const istOffset = 5.5 * 60 * 60 * 1000;
+  const istNow = new Date(now.getTime() + istOffset + now.getTimezoneOffset() * 60 * 1000);
+  const tomorrow6AM = new Date(istNow);
+  tomorrow6AM.setHours(6, 0, 0, 0);
+  if (istNow.getHours() >= 6) {
+    tomorrow6AM.setDate(tomorrow6AM.getDate() + 1);
+  }
+  return tomorrow6AM.getTime() - istNow.getTime();
+}
+
+export function setGrowwAccessToken(token: string): { success: boolean; expiresIn: string } {
+  cachedAccessToken = token;
+  const msUntilExpiry = computeExpiryMs();
+  tokenExpiry = Date.now() + msUntilExpiry - 60000;
+  tokenSetAt = Date.now();
+  tokenSource = "manual";
+  priceCache.clear();
+  console.log(`[Groww] Access token set manually, expires in ${Math.round(msUntilExpiry / 3600000)}h`);
+  return { success: true, expiresIn: `${Math.round(msUntilExpiry / 3600000)} hours` };
+}
+
+export function getGrowwTokenStatus(): {
+  hasToken: boolean;
+  source: string;
+  setAt: string | null;
+  expiresAt: string | null;
+  isExpired: boolean;
+} {
+  const hasToken = !!cachedAccessToken && Date.now() < tokenExpiry;
+  return {
+    hasToken,
+    source: tokenSource,
+    setAt: tokenSetAt > 0 ? new Date(tokenSetAt).toISOString() : null,
+    expiresAt: tokenExpiry > 0 ? new Date(tokenExpiry).toISOString() : null,
+    isExpired: tokenExpiry > 0 && Date.now() >= tokenExpiry,
+  };
 }
 
 async function getAccessToken(): Promise<string> {
@@ -69,13 +111,13 @@ async function getAccessToken(): Promise<string> {
   const apiSecret = process.env.GROWW_API_SECRET;
 
   if (!apiKey || !apiSecret) {
-    throw new Error("GROWW_API_KEY or GROWW_API_SECRET not configured");
+    throw new Error("GROWW_API_KEY or GROWW_API_SECRET not configured. Please set a Groww access token from the admin portal.");
   }
 
   const timestamp = Math.floor(Date.now() / 1000).toString();
   const checksum = generateChecksum(apiSecret, timestamp);
 
-  console.log(`[Groww] Requesting access token...`);
+  console.log(`[Groww] Requesting access token via API Key+Secret...`);
 
   const response = await fetch(`${GROWW_API_BASE}/token/api/access`, {
     method: "POST",
@@ -103,19 +145,12 @@ async function getAccessToken(): Promise<string> {
   }
 
   cachedAccessToken = data.token;
-
-  const now = new Date();
-  const istOffset = 5.5 * 60 * 60 * 1000;
-  const istNow = new Date(now.getTime() + istOffset + now.getTimezoneOffset() * 60 * 1000);
-  const tomorrow6AM = new Date(istNow);
-  tomorrow6AM.setHours(6, 0, 0, 0);
-  if (istNow.getHours() >= 6) {
-    tomorrow6AM.setDate(tomorrow6AM.getDate() + 1);
-  }
-  const msUntilExpiry = tomorrow6AM.getTime() - istNow.getTime();
+  const msUntilExpiry = computeExpiryMs();
   tokenExpiry = Date.now() + msUntilExpiry - 60000;
+  tokenSetAt = Date.now();
+  tokenSource = "api_key_secret";
 
-  console.log(`[Groww] Access token obtained, expires in ${Math.round(msUntilExpiry / 3600000)}h`);
+  console.log(`[Groww] Access token obtained via API Key+Secret, expires in ${Math.round(msUntilExpiry / 3600000)}h`);
   return cachedAccessToken;
 }
 
