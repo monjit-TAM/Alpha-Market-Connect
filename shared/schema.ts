@@ -89,6 +89,7 @@ export const positions = pgTable("positions", {
   rationale: text("rationale"),
   status: callStatusEnum("status").notNull().default("Active"),
   isPublished: boolean("is_published").default(false),
+  publishMode: text("publish_mode").default("draft"),
   enableLeg: boolean("enable_leg").default(false),
   usePercentage: boolean("use_percentage").default(false),
   createdAt: timestamp("created_at").defaultNow(),

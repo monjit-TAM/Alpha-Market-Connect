@@ -647,6 +647,9 @@ function PositionRow({
             {position.buySell}
           </Badge>
           {!isActive && <Badge variant="secondary">Closed</Badge>}
+          {isActive && (position as any).publishMode === "watchlist" && <Badge variant="secondary">Watchlist</Badge>}
+          {isActive && (position as any).publishMode === "live" && <Badge variant="default">Live</Badge>}
+          {isActive && !(position as any).publishMode && !position.isPublished && <Badge variant="secondary">Draft</Badge>}
           {isActive && livePrice && (
             <span className="flex items-center gap-1 text-xs font-medium" data-testid={`ltp-pos-${position.id}`}>
               {"\u20B9"}{livePrice.ltp.toFixed(2)}
@@ -1326,6 +1329,7 @@ function AddPositionSheet({
     stopLoss: "",
     rationale: "",
     isPublished: false,
+    publishMode: "draft" as "draft" | "watchlist" | "live",
     enableLeg: false,
     usePercentage: false,
   });
@@ -1348,12 +1352,15 @@ function AddPositionSheet({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (form.isPublished && !form.rationale.trim()) {
+    const isPublished = form.publishMode === "live" || form.publishMode === "watchlist";
+    if (isPublished && !form.rationale.trim()) {
       toast({ title: "Rationale is required to publish a position", variant: "destructive" });
       return;
     }
     mutation.mutate({
       ...form,
+      isPublished,
+      publishMode: form.publishMode,
       strategyId: strategy?.id,
       strikePrice: form.strikePrice || undefined,
       entryPrice: form.entryPrice || undefined,
@@ -1364,6 +1371,36 @@ function AddPositionSheet({
   };
 
   const segmentForSearch = form.segment === "Equity" ? "Equity" : form.segment === "Index" ? "Index" : "FnO";
+  const isFnOSegment = form.segment === "Option" || form.segment === "Future" || form.segment === "Index";
+  const symbolExchange = form.segment === "Index" ? (["SENSEX", "BANKEX"].includes(form.symbol.toUpperCase()) ? "BSE" : "NSE") : "NSE";
+
+  const now = new Date();
+  const { data: expiries, isLoading: expiriesLoading } = useQuery<string[]>({
+    queryKey: ["/api/option-chain/expiries", form.symbol, symbolExchange, now.getFullYear(), now.getMonth() + 1],
+    queryFn: async () => {
+      if (!form.symbol) return [];
+      const res = await fetch(`/api/option-chain/expiries?symbol=${encodeURIComponent(form.symbol)}&exchange=${symbolExchange}&year=${now.getFullYear()}&month=${now.getMonth() + 1}`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: isFnOSegment && form.symbol.length > 1,
+  });
+
+  const { data: optionChain, isLoading: chainLoading } = useQuery<any[]>({
+    queryKey: ["/api/option-chain", form.symbol, symbolExchange, form.expiry],
+    queryFn: async () => {
+      if (!form.symbol || !form.expiry) return [];
+      const res = await fetch(`/api/option-chain?symbol=${encodeURIComponent(form.symbol)}&exchange=${symbolExchange}&expiry=${encodeURIComponent(form.expiry)}`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: isFnOSegment && form.symbol.length > 1 && !!form.expiry,
+  });
+
+  const selectedStrike = optionChain?.find((s: any) => String(s.strikePrice) === form.strikePrice);
+  const optionLTP = selectedStrike
+    ? (form.callPut === "Call" ? selectedStrike.ce?.ltp : selectedStrike.pe?.ltp) || null
+    : null;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -1389,7 +1426,7 @@ function AddPositionSheet({
                   type="button"
                   variant={form.segment === seg ? "default" : "outline"}
                   size="sm"
-                  onClick={() => setForm({ ...form, segment: seg })}
+                  onClick={() => setForm({ ...form, segment: seg, expiry: "", strikePrice: "" })}
                   data-testid={`button-segment-${seg.toLowerCase()}`}
                 >
                   {seg}
@@ -1428,29 +1465,100 @@ function AddPositionSheet({
             <Label>Symbol</Label>
             <SymbolAutocomplete
               value={form.symbol}
-              onChange={(v) => setForm({ ...form, symbol: v })}
+              onChange={(v) => setForm({ ...form, symbol: v, expiry: "", strikePrice: "" })}
               segment={segmentForSearch}
               testId="input-symbol"
             />
           </div>
-          <div className="space-y-1.5">
-            <Label>Expiry</Label>
-            <Input
-              value={form.expiry}
-              onChange={(e) => setForm({ ...form, expiry: e.target.value })}
-              data-testid="input-expiry"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Strike Price</Label>
-            <Input
-              type="number"
-              step="0.01"
-              value={form.strikePrice}
-              onChange={(e) => setForm({ ...form, strikePrice: e.target.value })}
-              data-testid="input-strike-price"
-            />
-          </div>
+
+          {isFnOSegment && form.symbol ? (
+            <>
+              <div className="space-y-1.5">
+                <Label>Expiry Date</Label>
+                {expiriesLoading ? (
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin" /> Loading expiries...</div>
+                ) : expiries && expiries.length > 0 ? (
+                  <Select value={form.expiry} onValueChange={(v) => setForm({ ...form, expiry: v, strikePrice: "" })}>
+                    <SelectTrigger data-testid="select-expiry">
+                      <SelectValue placeholder="Select expiry date" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {expiries.map((exp: string) => (
+                        <SelectItem key={exp} value={exp}>
+                          {new Date(exp).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    value={form.expiry}
+                    onChange={(e) => setForm({ ...form, expiry: e.target.value })}
+                    placeholder="YYYY-MM-DD"
+                    data-testid="input-expiry"
+                  />
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Strike Price</Label>
+                {chainLoading ? (
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin" /> Loading option chain...</div>
+                ) : optionChain && optionChain.length > 0 ? (
+                  <Select value={form.strikePrice} onValueChange={(v) => setForm({ ...form, strikePrice: v })}>
+                    <SelectTrigger data-testid="select-strike-price">
+                      <SelectValue placeholder="Select strike price" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-60">
+                      {optionChain.map((s: any) => {
+                        const ceLtp = s.ce?.ltp ? `CE: ${"\u20B9"}${s.ce.ltp.toFixed(2)}` : "";
+                        const peLtp = s.pe?.ltp ? `PE: ${"\u20B9"}${s.pe.ltp.toFixed(2)}` : "";
+                        return (
+                          <SelectItem key={s.strikePrice} value={String(s.strikePrice)}>
+                            {s.strikePrice} {ceLtp ? `(${ceLtp})` : ""} {peLtp ? `(${peLtp})` : ""}
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={form.strikePrice}
+                    onChange={(e) => setForm({ ...form, strikePrice: e.target.value })}
+                    data-testid="input-strike-price"
+                  />
+                )}
+                {optionLTP !== null && (
+                  <p className="text-xs font-medium text-green-600 dark:text-green-400">
+                    Live {form.callPut} Premium: {"\u20B9"}{optionLTP.toFixed(2)}
+                  </p>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="space-y-1.5">
+                <Label>Expiry</Label>
+                <Input
+                  value={form.expiry}
+                  onChange={(e) => setForm({ ...form, expiry: e.target.value })}
+                  data-testid="input-expiry"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Strike Price</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={form.strikePrice}
+                  onChange={(e) => setForm({ ...form, strikePrice: e.target.value })}
+                  data-testid="input-strike-price"
+                />
+              </div>
+            </>
+          )}
           <div className="space-y-1.5">
             <Label>Entry Price</Label>
             <Input
@@ -1502,20 +1610,31 @@ function AddPositionSheet({
               placeholder="Type your rationale for this position (required to publish)"
               data-testid="input-position-rationale"
             />
-            {form.isPublished && !form.rationale.trim() && (
+            {(form.publishMode === "live" || form.publishMode === "watchlist") && !form.rationale.trim() && (
               <p className="text-xs text-destructive">Rationale is required to publish</p>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <Checkbox
-              checked={form.isPublished}
-              onCheckedChange={(v) => setForm({ ...form, isPublished: !!v })}
-            />
-            <Label className="text-sm">Published</Label>
+          <div className="space-y-1.5">
+            <Label>Publish Mode</Label>
+            <Select value={form.publishMode} onValueChange={(v: "draft" | "watchlist" | "live") => setForm({ ...form, publishMode: v, isPublished: v !== "draft" })}>
+              <SelectTrigger data-testid="select-publish-mode">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="draft">Draft (Save without publishing)</SelectItem>
+                <SelectItem value="watchlist">Watchlist (Monitor only)</SelectItem>
+                <SelectItem value="live">Live (Active recommendation)</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {form.publishMode === "draft" && "Saved privately, not visible to subscribers"}
+              {form.publishMode === "watchlist" && "Visible to subscribers as a watchlist item"}
+              {form.publishMode === "live" && "Published as an active trade recommendation"}
+            </p>
           </div>
           <Button type="submit" className="w-full" disabled={mutation.isPending} data-testid="button-save-position">
             {mutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
-            Save
+            {form.publishMode === "live" ? "Publish Live" : form.publishMode === "watchlist" ? "Add to Watchlist" : "Save Draft"}
           </Button>
         </form>
       </SheetContent>

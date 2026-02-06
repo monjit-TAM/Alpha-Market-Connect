@@ -151,7 +151,7 @@ async function getAccessToken(): Promise<string> {
   tokenSource = "api_key_secret";
 
   console.log(`[Groww] Access token obtained via API Key+Secret, expires in ${Math.round(msUntilExpiry / 3600000)}h`);
-  return cachedAccessToken;
+  return cachedAccessToken!;
 }
 
 function getHeaders(accessToken: string): Record<string, string> {
@@ -385,6 +385,107 @@ export async function getLivePrices(
   }
 
   return results;
+}
+
+export async function getOptionChainExpiries(
+  exchange: string,
+  underlying: string,
+  year: number,
+  month: number
+): Promise<string[]> {
+  try {
+    const accessToken = await getAccessToken();
+    const url = `${GROWW_API_BASE}/option-chain/exchange/${exchange}/underlying/${underlying}/expiries?year=${year}&month=${month}`;
+    const response = await fetch(url, { headers: getHeaders(accessToken) });
+    if (!response.ok) {
+      console.error(`[Groww] Expiries error: ${response.status}`);
+      return [];
+    }
+    const data = await response.json();
+    return data.payload || data || [];
+  } catch (err) {
+    console.error("[Groww] Error fetching expiries:", err);
+    return [];
+  }
+}
+
+export interface OptionChainStrike {
+  strikePrice: number;
+  ce?: {
+    ltp: number;
+    change: number;
+    oi: number;
+    volume: number;
+    iv?: number;
+    bidPrice?: number;
+    askPrice?: number;
+    tradingSymbol?: string;
+  };
+  pe?: {
+    ltp: number;
+    change: number;
+    oi: number;
+    volume: number;
+    iv?: number;
+    bidPrice?: number;
+    askPrice?: number;
+    tradingSymbol?: string;
+  };
+}
+
+export async function getOptionChain(
+  exchange: string,
+  underlying: string,
+  expiryDate: string
+): Promise<OptionChainStrike[]> {
+  try {
+    const accessToken = await getAccessToken();
+    const url = `${GROWW_API_BASE}/option-chain/exchange/${exchange}/underlying/${underlying}?expiry_date=${expiryDate}`;
+    const response = await fetch(url, { headers: getHeaders(accessToken) });
+    if (!response.ok) {
+      const errBody = await response.text();
+      console.error(`[Groww] Option chain error: ${response.status} - ${errBody}`);
+      return [];
+    }
+    const data = await response.json();
+    if (!data.payload) return [];
+
+    const strikes: OptionChainStrike[] = [];
+    const chainData = data.payload.option_chain || data.payload;
+
+    if (Array.isArray(chainData)) {
+      for (const item of chainData) {
+        strikes.push({
+          strikePrice: item.strike_price || item.strikePrice,
+          ce: item.ce ? {
+            ltp: item.ce.last_price || item.ce.ltp || 0,
+            change: item.ce.day_change || item.ce.change || 0,
+            oi: item.ce.open_interest || item.ce.oi || 0,
+            volume: item.ce.volume || 0,
+            iv: item.ce.iv,
+            bidPrice: item.ce.bid_price,
+            askPrice: item.ce.offer_price,
+            tradingSymbol: item.ce.trading_symbol,
+          } : undefined,
+          pe: item.pe ? {
+            ltp: item.pe.last_price || item.pe.ltp || 0,
+            change: item.pe.day_change || item.pe.change || 0,
+            oi: item.pe.open_interest || item.pe.oi || 0,
+            volume: item.pe.volume || 0,
+            iv: item.pe.iv,
+            bidPrice: item.pe.bid_price,
+            askPrice: item.pe.offer_price,
+            tradingSymbol: item.pe.trading_symbol,
+          } : undefined,
+        });
+      }
+    }
+
+    return strikes.sort((a, b) => a.strikePrice - b.strikePrice);
+  } catch (err) {
+    console.error("[Groww] Error fetching option chain:", err);
+    return [];
+  }
 }
 
 export async function getBulkOHLC(

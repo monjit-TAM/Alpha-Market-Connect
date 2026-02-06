@@ -6,7 +6,7 @@ import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { sendRegistrationNotification, sendUserWelcomeEmail, sendPasswordResetEmail, sendAdvisorAgreementEmail } from "./email";
-import { getLiveQuote, getLivePrices, setGrowwAccessToken, getGrowwTokenStatus } from "./groww";
+import { getLiveQuote, getLivePrices, setGrowwAccessToken, getGrowwTokenStatus, getOptionChainExpiries, getOptionChain } from "./groww";
 import type { Plan } from "@shared/schema";
 import nseSymbols from "./data/nse-symbols.json";
 
@@ -335,6 +335,33 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/option-chain/expiries", async (req, res) => {
+    try {
+      const symbol = (req.query.symbol as string) || "NIFTY";
+      const exchange = (req.query.exchange as string) || "NSE";
+      const now = new Date();
+      const year = parseInt(req.query.year as string) || now.getFullYear();
+      const month = parseInt(req.query.month as string) || (now.getMonth() + 1);
+      const expiries = await getOptionChainExpiries(exchange, symbol, year, month);
+      res.json(expiries);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.get("/api/option-chain", async (req, res) => {
+    try {
+      const symbol = (req.query.symbol as string) || "NIFTY";
+      const exchange = (req.query.exchange as string) || "NSE";
+      const expiry = req.query.expiry as string;
+      if (!expiry) return res.status(400).send("expiry query parameter is required");
+      const chain = await getOptionChain(exchange, symbol, expiry);
+      res.json(chain);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
   app.get("/api/strategies/:id/calls", async (req, res) => {
     try {
       const allCalls = await storage.getCalls(req.params.id);
@@ -498,12 +525,20 @@ export async function registerRoutes(
 
   app.post("/api/strategies/:id/positions", requireAdvisor, async (req, res) => {
     try {
-      if (req.body.isPublished && (!req.body.rationale || !req.body.rationale.trim())) {
+      const validModes = ["draft", "watchlist", "live"];
+      const publishMode = req.body.publishMode || "draft";
+      if (!validModes.includes(publishMode)) {
+        return res.status(400).send("Invalid publishMode. Must be draft, watchlist, or live");
+      }
+      const isPublished = publishMode === "live" || publishMode === "watchlist";
+      if (isPublished && (!req.body.rationale || !req.body.rationale.trim())) {
         return res.status(400).send("Rationale is required to publish a position");
       }
       const p = await storage.createPosition({
         ...req.body,
         strategyId: req.params.id,
+        publishMode,
+        isPublished,
       });
       res.json(p);
     } catch (err: any) {

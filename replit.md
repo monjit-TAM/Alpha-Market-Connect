@@ -18,6 +18,13 @@ AlphaMarket is a SaaS marketplace platform connecting SEBI-registered Indian adv
 - **Auth**: Session-based with scrypt password hashing
 
 ## Recent Changes
+- Added F&O option chain integration: expiry date dropdown and strike price dropdown populated from Groww API option chain endpoint
+- Live option premium display when selecting a strike price (shows CE/PE LTP)
+- Added F&O publish flow with three modes: Draft (save privately), Watchlist (monitor), Live (active recommendation)
+- Added `publishMode` column to positions table (draft/watchlist/live)
+- Added rationale requirement: advisors cannot publish calls/positions without typing rationale (frontend validation + backend 400 enforcement)
+- Added rationale display, created date/time, and closed date/time across strategy detail page and advisor dashboard
+- Added GET /api/option-chain/expiries and GET /api/option-chain routes for Groww API option chain data
 - Completed Groww API integration with proper two-step authentication (API Key + Secret → SHA256 checksum → access token exchange)
 - Access tokens are cached and auto-refresh before daily 6:00 AM IST expiry
 - Live market prices now fully functional: LTP display with change indicators on strategy detail page and advisor dashboard
