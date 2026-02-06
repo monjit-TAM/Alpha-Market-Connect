@@ -30,7 +30,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle, XCircle, Pencil, Trash2, Search, Shield, ExternalLink } from "lucide-react";
+import { CheckCircle, XCircle, Pencil, Trash2, Search, Shield, ExternalLink, FileText } from "lucide-react";
 import type { User } from "@shared/schema";
 
 type SafeUser = Omit<User, "password">;
@@ -326,8 +326,14 @@ function UserRow({
           <p className="text-xs text-muted-foreground">SEBI: {user.sebiRegNumber}</p>
         )}
         {user.sebiCertUrl && (
-          <a href={user.sebiCertUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-primary flex items-center gap-1">
-            <ExternalLink className="w-3 h-3" /> View Certificate
+          <a
+            href={user.sebiCertUrl.startsWith("/objects/") ? user.sebiCertUrl : user.sebiCertUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-primary flex items-center gap-1"
+            data-testid={`admin-cert-link-${user.id}`}
+          >
+            <FileText className="w-3 h-3" /> View SEBI Certificate
           </a>
         )}
       </div>

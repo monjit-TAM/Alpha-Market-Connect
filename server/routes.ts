@@ -5,6 +5,7 @@ import { storage } from "./storage";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
+import { sendRegistrationNotification } from "./email";
 
 const scryptAsync = promisify(scrypt);
 
@@ -106,6 +107,16 @@ export async function registerRoutes(
       req.session.userId = user.id;
       const { password: _, ...safeUser } = user;
       res.json(safeUser);
+
+      sendRegistrationNotification({
+        username,
+        email,
+        phone: phone || undefined,
+        role: role || "investor",
+        companyName: companyName || undefined,
+        sebiRegNumber: sebiRegNumber || undefined,
+        sebiCertUrl: sebiCertUrl || undefined,
+      }).catch((err) => console.error("Email notification error:", err));
     } catch (err: any) {
       res.status(500).send(err.message);
     }
