@@ -4,6 +4,7 @@ import session from "express-session";
 import { storage } from "./storage";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
+import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 
 const scryptAsync = promisify(scrypt);
 
@@ -29,14 +30,22 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  app.set("trust proxy", 1);
   app.use(
     session({
       secret: process.env.SESSION_SECRET || "alphamarket-secret-key",
       resave: false,
       saveUninitialized: false,
-      cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 },
+      cookie: {
+        maxAge: 30 * 24 * 60 * 60 * 1000,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        httpOnly: true,
+      },
     })
   );
+
+  registerObjectStorageRoutes(app);
 
   function requireAuth(req: Request, res: Response, next: Function) {
     if (!req.session.userId) {

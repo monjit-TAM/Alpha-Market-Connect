@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,9 +6,10 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/lib/auth";
-import { TrendingUp, Loader2, Shield, Upload } from "lucide-react";
+import { TrendingUp, Loader2, Shield, Upload, FileCheck, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
+import { useUpload } from "@/hooks/use-upload";
 
 export function LoginPage() {
   const [username, setUsername] = useState("");
@@ -92,6 +93,17 @@ export function LoginPage() {
   );
 }
 
+const ALLOWED_FILE_TYPES = [
+  "application/pdf",
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+];
+
+const ALLOWED_EXTENSIONS = ".pdf,.jpg,.jpeg,.png,.doc,.docx";
+
 export function RegisterPage() {
   const [form, setForm] = useState({
     username: "",
@@ -104,9 +116,54 @@ export function RegisterPage() {
     sebiCertUrl: "",
   });
   const [loading, setLoading] = useState(false);
+  const [uploadedFile, setUploadedFile] = useState<{ name: string; path: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { register } = useAuth();
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const { uploadFile, isUploading, progress } = useUpload({
+    onSuccess: (response) => {
+      setUploadedFile({ name: response.metadata.name, path: response.objectPath });
+      setForm((prev) => ({ ...prev, sebiCertUrl: response.objectPath }));
+      toast({ title: "Certificate uploaded successfully" });
+    },
+    onError: (err) => {
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!ALLOWED_FILE_TYPES.includes(file.type)) {
+      toast({
+        title: "Invalid file type",
+        description: "Please upload a PDF, JPEG, PNG, or Word document.",
+        variant: "destructive",
+      });
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      toast({
+        title: "File too large",
+        description: "Maximum file size is 10MB.",
+        variant: "destructive",
+      });
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    await uploadFile(file);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const removeFile = () => {
+    setUploadedFile(null);
+    setForm((prev) => ({ ...prev, sebiCertUrl: "" }));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -221,22 +278,64 @@ export function RegisterPage() {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="reg-cert">
+                  <Label>
                     <span className="flex items-center gap-1">
                       <Upload className="w-3 h-3" />
-                      SEBI Registration Certificate URL
+                      SEBI Registration Certificate
                     </span>
                   </Label>
-                  <Input
-                    id="reg-cert"
-                    value={form.sebiCertUrl}
-                    onChange={(e) => setForm({ ...form, sebiCertUrl: e.target.value })}
-                    placeholder="https://drive.google.com/... or upload link"
-                    data-testid="input-reg-cert-url"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Provide a link to your SEBI registration certificate (Google Drive, Dropbox, etc.)
-                  </p>
+                  {uploadedFile ? (
+                    <div className="flex items-center gap-2 p-2 rounded-md bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800">
+                      <FileCheck className="w-4 h-4 text-green-600 dark:text-green-400 flex-shrink-0" />
+                      <span className="text-sm text-green-800 dark:text-green-300 truncate flex-1" data-testid="text-uploaded-file">
+                        {uploadedFile.name}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={removeFile}
+                        className="flex-shrink-0"
+                        data-testid="button-remove-file"
+                      >
+                        <X className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <div>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept={ALLOWED_EXTENSIONS}
+                        onChange={handleFileSelect}
+                        className="hidden"
+                        data-testid="input-file-cert"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isUploading}
+                        data-testid="button-upload-cert"
+                      >
+                        {isUploading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                            Uploading... {progress}%
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="w-4 h-4 mr-1" />
+                            Upload Certificate
+                          </>
+                        )}
+                      </Button>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Accepted: PDF, JPEG, PNG, Word Document (max 10MB)
+                      </p>
+                    </div>
+                  )}
                 </div>
                 <div className="rounded-md bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 p-3">
                   <p className="text-xs text-amber-800 dark:text-amber-300">
@@ -256,7 +355,7 @@ export function RegisterPage() {
                 data-testid="input-reg-password"
               />
             </div>
-            <Button type="submit" className="w-full" disabled={loading} data-testid="button-register">
+            <Button type="submit" className="w-full" disabled={loading || isUploading} data-testid="button-register">
               {loading && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
               Create Account
             </Button>
