@@ -3,7 +3,7 @@ import { pgTable, text, varchar, integer, boolean, timestamp, numeric, pgEnum } 
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-export const roleEnum = pgEnum("role", ["advisor", "investor"]);
+export const roleEnum = pgEnum("role", ["advisor", "investor", "admin"]);
 export const strategyStatusEnum = pgEnum("strategy_status", ["Draft", "Published"]);
 export const callStatusEnum = pgEnum("call_status", ["Active", "Closed"]);
 export const strategyTypeEnum = pgEnum("strategy_type", ["Equity", "Basket", "Future", "Commodity", "CommodityFuture", "Option"]);
@@ -22,6 +22,7 @@ export const users = pgTable("users", {
   sebiCertUrl: text("sebi_cert_url"),
   sebiRegNumber: text("sebi_reg_number"),
   isRegistered: boolean("is_registered").default(false),
+  isApproved: boolean("is_approved").default(false),
   activeSince: timestamp("active_since"),
   createdAt: timestamp("created_at").defaultNow(),
 });

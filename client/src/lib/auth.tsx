@@ -4,8 +4,8 @@ import type { User } from "@shared/schema";
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
-  login: (username: string, password: string) => Promise<void>;
-  register: (data: any) => Promise<void>;
+  login: (username: string, password: string) => Promise<User>;
+  register: (data: any) => Promise<User>;
   logout: () => Promise<void>;
   refetch: () => Promise<void>;
 }
@@ -36,7 +36,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     fetchUser();
   }, [fetchUser]);
 
-  const login = async (username: string, password: string) => {
+  const login = async (username: string, password: string): Promise<User> => {
     const res = await fetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -49,9 +49,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     const data = await res.json();
     setUser(data);
+    return data;
   };
 
-  const register = async (data: any) => {
+  const register = async (data: any): Promise<User> => {
     const res = await fetch("/api/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -64,6 +65,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     const userData = await res.json();
     setUser(userData);
+    return userData;
   };
 
   const logout = async () => {

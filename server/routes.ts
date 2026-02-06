@@ -45,10 +45,32 @@ export async function registerRoutes(
     next();
   }
 
+  async function requireAdmin(req: Request, res: Response, next: Function) {
+    if (!req.session.userId) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = await storage.getUser(req.session.userId);
+    if (!user || user.role !== "admin") {
+      return res.status(403).send("Admin access required");
+    }
+    next();
+  }
+
+  async function requireAdvisor(req: Request, res: Response, next: Function) {
+    if (!req.session.userId) {
+      return res.status(401).send("Not authenticated");
+    }
+    const user = await storage.getUser(req.session.userId);
+    if (!user || user.role !== "advisor") {
+      return res.status(403).send("Advisor access required");
+    }
+    next();
+  }
+
   // Auth routes
   app.post("/api/auth/register", async (req, res) => {
     try {
-      const { username, email, password, phone, role, companyName } = req.body;
+      const { username, email, password, phone, role, companyName, sebiRegNumber, sebiCertUrl } = req.body;
       const existing = await storage.getUserByUsername(username);
       if (existing) return res.status(400).send("Username already taken");
       const existingEmail = await storage.getUserByEmail(email);
@@ -65,9 +87,10 @@ export async function registerRoutes(
         overview: null,
         themes: null,
         logoUrl: null,
-        sebiCertUrl: null,
-        sebiRegNumber: null,
+        sebiCertUrl: role === "advisor" ? (sebiCertUrl || null) : null,
+        sebiRegNumber: role === "advisor" ? (sebiRegNumber || null) : null,
         isRegistered: role === "advisor",
+        isApproved: false,
         activeSince: new Date(),
       });
 
@@ -107,7 +130,7 @@ export async function registerRoutes(
     res.json({ ok: true });
   });
 
-  // Advisor public routes
+  // Advisor public routes (only approved advisors)
   app.get("/api/advisors", async (_req, res) => {
     try {
       const advisors = await storage.getAdvisors();
@@ -218,8 +241,8 @@ export async function registerRoutes(
     }
   });
 
-  // Advisor dashboard routes (require auth)
-  app.get("/api/advisor/strategies", requireAuth, async (req, res) => {
+  // Advisor dashboard routes (require advisor role)
+  app.get("/api/advisor/strategies", requireAdvisor, async (req, res) => {
     try {
       const strats = await storage.getStrategies(req.session.userId!);
       res.json(strats);
@@ -228,7 +251,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/strategies", requireAuth, async (req, res) => {
+  app.post("/api/strategies", requireAdvisor, async (req, res) => {
     try {
       const s = await storage.createStrategy({
         ...req.body,
@@ -258,7 +281,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/strategies/:id/calls", requireAuth, async (req, res) => {
+  app.post("/api/strategies/:id/calls", requireAdvisor, async (req, res) => {
     try {
       const c = await storage.createCall({
         ...req.body,
@@ -270,7 +293,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/strategies/:id/positions", requireAuth, async (req, res) => {
+  app.post("/api/strategies/:id/positions", requireAdvisor, async (req, res) => {
     try {
       const p = await storage.createPosition({
         ...req.body,
@@ -283,7 +306,7 @@ export async function registerRoutes(
   });
 
   // Plans
-  app.get("/api/advisor/plans", requireAuth, async (req, res) => {
+  app.get("/api/advisor/plans", requireAdvisor, async (req, res) => {
     try {
       const p = await storage.getPlans(req.session.userId!);
       res.json(p);
@@ -292,7 +315,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/plans", requireAuth, async (req, res) => {
+  app.post("/api/plans", requireAdvisor, async (req, res) => {
     try {
       const p = await storage.createPlan({
         ...req.body,
@@ -304,7 +327,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/plans/:id", requireAuth, async (req, res) => {
+  app.delete("/api/plans/:id", requireAdvisor, async (req, res) => {
     try {
       await storage.deletePlan(req.params.id);
       res.json({ ok: true });
@@ -314,7 +337,7 @@ export async function registerRoutes(
   });
 
   // Subscriptions
-  app.get("/api/advisor/subscribers", requireAuth, async (req, res) => {
+  app.get("/api/advisor/subscribers", requireAdvisor, async (req, res) => {
     try {
       const subs = await storage.getSubscriptions(req.session.userId!);
       res.json(subs);
@@ -323,7 +346,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/advisor/subscriptions", requireAuth, async (req, res) => {
+  app.get("/api/advisor/subscriptions", requireAdvisor, async (req, res) => {
     try {
       const subs = await storage.getSubscriptions(req.session.userId!);
       res.json(subs);
@@ -333,7 +356,7 @@ export async function registerRoutes(
   });
 
   // Content
-  app.get("/api/advisor/content", requireAuth, async (req, res) => {
+  app.get("/api/advisor/content", requireAdvisor, async (req, res) => {
     try {
       const c = await storage.getContent(req.session.userId!);
       res.json(c);
@@ -342,7 +365,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/content", requireAuth, async (req, res) => {
+  app.post("/api/content", requireAdvisor, async (req, res) => {
     try {
       const c = await storage.createContent({
         ...req.body,
@@ -354,7 +377,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/content/:id", requireAuth, async (req, res) => {
+  app.delete("/api/content/:id", requireAdvisor, async (req, res) => {
     try {
       await storage.deleteContent(req.params.id);
       res.json({ ok: true });
@@ -364,7 +387,7 @@ export async function registerRoutes(
   });
 
   // Scores
-  app.get("/api/advisor/scores", requireAuth, async (req, res) => {
+  app.get("/api/advisor/scores", requireAdvisor, async (req, res) => {
     try {
       const s = await storage.getScores(req.session.userId!);
       res.json(s);
@@ -373,7 +396,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/advisor/scores", requireAuth, async (req, res) => {
+  app.post("/api/advisor/scores", requireAdvisor, async (req, res) => {
     try {
       const s = await storage.createScore({
         ...req.body,
@@ -386,7 +409,7 @@ export async function registerRoutes(
   });
 
   // Profile update
-  app.patch("/api/advisor/profile", requireAuth, async (req, res) => {
+  app.patch("/api/advisor/profile", requireAdvisor, async (req, res) => {
     try {
       const u = await storage.updateUser(req.session.userId!, req.body);
       const { password: _, ...safe } = u;
@@ -397,7 +420,7 @@ export async function registerRoutes(
   });
 
   // Reports download
-  app.get("/api/advisor/reports/download", requireAuth, async (req, res) => {
+  app.get("/api/advisor/reports/download", requireAdvisor, async (req, res) => {
     try {
       const type = req.query.type as string;
       res.setHeader("Content-Type", "text/csv");
@@ -435,6 +458,70 @@ export async function registerRoutes(
         }
         res.send(csv);
       }
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  // ========== ADMIN ROUTES ==========
+
+  // Get all users (admin)
+  app.get("/api/admin/users", requireAdmin, async (_req, res) => {
+    try {
+      const allUsers = await storage.getAllUsers();
+      const safe = allUsers.map(({ password: _, ...u }) => u);
+      res.json(safe);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  // Update user (admin - approve/disapprove/edit)
+  app.patch("/api/admin/users/:id", requireAdmin, async (req, res) => {
+    try {
+      const u = await storage.updateUser(req.params.id, req.body);
+      const { password: _, ...safe } = u;
+      res.json(safe);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  // Delete user (admin)
+  app.delete("/api/admin/users/:id", requireAdmin, async (req, res) => {
+    try {
+      await storage.deleteUser(req.params.id);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  // Get all strategies (admin)
+  app.get("/api/admin/strategies", requireAdmin, async (_req, res) => {
+    try {
+      const strats = await storage.getAllStrategies();
+      res.json(strats);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  // Update any strategy (admin)
+  app.patch("/api/admin/strategies/:id", requireAdmin, async (req, res) => {
+    try {
+      const s = await storage.updateStrategy(req.params.id, req.body);
+      res.json(s);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  // Delete any strategy (admin)
+  app.delete("/api/admin/strategies/:id", requireAdmin, async (req, res) => {
+    try {
+      await storage.deleteStrategy(req.params.id);
+      res.json({ ok: true });
     } catch (err: any) {
       res.status(500).send(err.message);
     }

@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/lib/auth";
-import { TrendingUp, Loader2 } from "lucide-react";
+import { TrendingUp, Loader2, Shield, Upload } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
 
@@ -22,8 +22,14 @@ export function LoginPage() {
     e.preventDefault();
     setLoading(true);
     try {
-      await login(username, password);
-      navigate("/");
+      const user = await login(username, password);
+      if (user.role === "admin") {
+        navigate("/admin");
+      } else if (user.role === "advisor") {
+        navigate("/dashboard");
+      } else {
+        navigate("/strategies");
+      }
     } catch (err: any) {
       toast({ title: "Login failed", description: err.message, variant: "destructive" });
     } finally {
@@ -94,6 +100,8 @@ export function RegisterPage() {
     phone: "",
     role: "investor" as "investor" | "advisor",
     companyName: "",
+    sebiRegNumber: "",
+    sebiCertUrl: "",
   });
   const [loading, setLoading] = useState(false);
   const { register } = useAuth();
@@ -102,10 +110,22 @@ export function RegisterPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (form.role === "advisor" && !form.sebiRegNumber) {
+      toast({ title: "SEBI Registration Number is required for advisors", variant: "destructive" });
+      return;
+    }
     setLoading(true);
     try {
       await register(form);
-      navigate(form.role === "advisor" ? "/dashboard" : "/strategies");
+      if (form.role === "advisor") {
+        toast({
+          title: "Registration successful",
+          description: "Your advisor account is pending admin approval. You will be notified once approved.",
+        });
+        navigate("/dashboard");
+      } else {
+        navigate("/strategies");
+      }
     } catch (err: any) {
       toast({ title: "Registration failed", description: err.message, variant: "destructive" });
     } finally {
@@ -174,15 +194,56 @@ export function RegisterPage() {
               />
             </div>
             {form.role === "advisor" && (
-              <div className="space-y-1.5">
-                <Label htmlFor="reg-company">Company / Firm Name</Label>
-                <Input
-                  id="reg-company"
-                  value={form.companyName}
-                  onChange={(e) => setForm({ ...form, companyName: e.target.value })}
-                  data-testid="input-reg-company"
-                />
-              </div>
+              <>
+                <div className="space-y-1.5">
+                  <Label htmlFor="reg-company">Company / Firm Name</Label>
+                  <Input
+                    id="reg-company"
+                    value={form.companyName}
+                    onChange={(e) => setForm({ ...form, companyName: e.target.value })}
+                    data-testid="input-reg-company"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="reg-sebi">
+                    <span className="flex items-center gap-1">
+                      <Shield className="w-3 h-3" />
+                      SEBI Registration Number *
+                    </span>
+                  </Label>
+                  <Input
+                    id="reg-sebi"
+                    value={form.sebiRegNumber}
+                    onChange={(e) => setForm({ ...form, sebiRegNumber: e.target.value })}
+                    placeholder="e.g. INH000012345"
+                    required
+                    data-testid="input-reg-sebi"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="reg-cert">
+                    <span className="flex items-center gap-1">
+                      <Upload className="w-3 h-3" />
+                      SEBI Registration Certificate URL
+                    </span>
+                  </Label>
+                  <Input
+                    id="reg-cert"
+                    value={form.sebiCertUrl}
+                    onChange={(e) => setForm({ ...form, sebiCertUrl: e.target.value })}
+                    placeholder="https://drive.google.com/... or upload link"
+                    data-testid="input-reg-cert-url"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Provide a link to your SEBI registration certificate (Google Drive, Dropbox, etc.)
+                  </p>
+                </div>
+                <div className="rounded-md bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 p-3">
+                  <p className="text-xs text-amber-800 dark:text-amber-300">
+                    Your advisor account will be reviewed and approved by our admin team before your profile and strategies become visible to investors.
+                  </p>
+                </div>
+              </>
             )}
             <div className="space-y-1.5">
               <Label htmlFor="reg-password">Password</Label>

@@ -18,6 +18,19 @@ export async function seed() {
 
   const advisorPassword = await hashPassword("advisor123");
   const investorPassword = await hashPassword("investor123");
+  const adminPassword = await hashPassword("admin123");
+
+  const existingAdmin = await db.select().from(users).where(eq(users.role, "admin"));
+  if (existingAdmin.length === 0) {
+    await db.insert(users).values({
+      username: "admin",
+      email: "admin@alphamarket.com",
+      password: adminPassword,
+      role: "admin",
+      companyName: "AlphaMarket Admin",
+      isApproved: true,
+    });
+  }
 
   const [advisor1] = await db.insert(users).values({
     username: "stokwiz",
@@ -29,6 +42,7 @@ export async function seed() {
     overview: "Welcome to STOKWIZ, a revered entity in the financial domain, holding prestigious accreditation as a SEBI registered Investment Advisor. We take immense pride in our robust legacy of aiding Indian investors. Our commitment is fortified by our endeavor to furnish our clientele with precise insights, well-founded calls, expert advisory, and profound market analysis.\n\nAt STOKWIZ, we champion the ethos of empowering investors to navigate the financial markets with enhanced acuity and confidence, ensuring they are well-positioned to make informed and lucrative decisions.",
     themes: ["Equity", "F&O", "Growth"],
     isRegistered: true,
+    isApproved: true,
     sebiRegNumber: "INH000013925",
     activeSince: new Date("2023-09-28"),
   }).returning();
@@ -43,6 +57,7 @@ export async function seed() {
     overview: "FINKHOZ is a quantitative research and robo-advisory platform that builds data-backed stock baskets designed for long-term, consistent wealth creation. Our team of experienced financial analysts and data scientists work together to deliver high-quality investment strategies.",
     themes: ["Basket"],
     isRegistered: true,
+    isApproved: true,
     sebiRegNumber: "INH000022297",
     activeSince: new Date("2025-12-12"),
   }).returning();
@@ -57,6 +72,7 @@ export async function seed() {
     overview: "Pratham Capital Research is dedicated to providing data-driven insights and strategic guidance to help clients achieve their financial goals. With years of experience in equity markets, our research process combines fundamental and technical analysis for comprehensive stock coverage.",
     themes: ["Equity"],
     isRegistered: true,
+    isApproved: true,
     sebiRegNumber: "INH000020299",
     activeSince: new Date("2025-07-14"),
   }).returning();
@@ -71,6 +87,7 @@ export async function seed() {
     overview: "Founder of AALGO BREATHS | M.Com, CMA | 10+ Years of Experience. Amit Bhattacharjee is a SEBI Registered Research Analyst providing comprehensive equity, F&O, and commodity research with a data-driven approach to market analysis.",
     themes: ["Equity", "F&O", "Growth", "Shorting", "SwingTrade", "Dividend Stocks", "Basket"],
     isRegistered: true,
+    isApproved: true,
     sebiRegNumber: "INH000019886",
     activeSince: new Date("2025-07-10"),
   }).returning();
@@ -85,6 +102,7 @@ export async function seed() {
     overview: "Varun Kumar Patel has been in the financial markets for more than 17 years. He is the first individual research analyst in North Gujarat. He provides expert commodity and equity research with a focus on precision and risk management.",
     themes: ["Equity", "F&O", "Growth", "SwingTrade", "Basket"],
     isRegistered: true,
+    isApproved: true,
     sebiRegNumber: "INH000011370",
     activeSince: new Date("2025-07-08"),
   }).returning();
@@ -99,6 +117,7 @@ export async function seed() {
     overview: "Sandeep Wagle is an experienced market professional with deep expertise in technical analysis and momentum trading. His strategies focus on identifying breakouts, price patterns, and momentum signals for both intraday and positional trades.",
     themes: ["Equity", "F&O", "SwingTrade"],
     isRegistered: true,
+    isApproved: true,
     sebiRegNumber: "INH000016500",
     activeSince: new Date("2025-02-16"),
   }).returning();

@@ -18,10 +18,13 @@ export interface IStorage {
   getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: string, data: Partial<User>): Promise<User>;
+  deleteUser(id: string): Promise<void>;
   getAdvisors(): Promise<User[]>;
   getAdvisorWithDetails(id: string): Promise<any>;
+  getAllUsers(): Promise<User[]>;
 
   getStrategies(advisorId: string): Promise<Strategy[]>;
+  getAllStrategies(): Promise<any[]>;
   getPublishedStrategies(): Promise<any[]>;
   getStrategy(id: string): Promise<any>;
   createStrategy(data: InsertStrategy): Promise<Strategy>;
@@ -76,8 +79,27 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
+  async deleteUser(id: string): Promise<void> {
+    const userStrats = await db.select().from(strategies).where(eq(strategies.advisorId, id));
+    for (const s of userStrats) {
+      await db.delete(calls).where(eq(calls.strategyId, s.id));
+      await db.delete(positions).where(eq(positions.strategyId, s.id));
+    }
+    await db.delete(strategies).where(eq(strategies.advisorId, id));
+    await db.delete(plans).where(eq(plans.advisorId, id));
+    await db.delete(content).where(eq(content.advisorId, id));
+    await db.delete(scores).where(eq(scores.advisorId, id));
+    await db.delete(subscriptions).where(eq(subscriptions.advisorId, id));
+    await db.delete(subscriptions).where(eq(subscriptions.userId, id));
+    await db.delete(users).where(eq(users.id, id));
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    return db.select().from(users).orderBy(desc(users.createdAt));
+  }
+
   async getAdvisors(): Promise<User[]> {
-    return db.select().from(users).where(eq(users.role, "advisor")).orderBy(desc(users.createdAt));
+    return db.select().from(users).where(and(eq(users.role, "advisor"), eq(users.isApproved, true))).orderBy(desc(users.createdAt));
   }
 
   async getAdvisorWithDetails(id: string): Promise<any> {
@@ -91,6 +113,17 @@ export class DatabaseStorage implements IStorage {
 
   async getStrategies(advisorId: string): Promise<Strategy[]> {
     return db.select().from(strategies).where(eq(strategies.advisorId, advisorId)).orderBy(desc(strategies.createdAt));
+  }
+
+  async getAllStrategies(): Promise<any[]> {
+    const strats = await db.select().from(strategies).orderBy(desc(strategies.createdAt));
+    const result = [];
+    for (const s of strats) {
+      const [advisor] = await db.select().from(users).where(eq(users.id, s.advisorId));
+      const { password: _, ...safeAdvisor } = advisor || {} as any;
+      result.push({ ...s, advisor: safeAdvisor });
+    }
+    return result;
   }
 
   async getPublishedStrategies(): Promise<any[]> {

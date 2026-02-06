@@ -12,6 +12,7 @@ import StrategyDetail from "@/pages/strategy-detail";
 import AdvisorsListing from "@/pages/advisors-listing";
 import AdvisorDetail from "@/pages/advisor-detail";
 import Dashboard from "@/pages/dashboard/index";
+import AdminDashboard from "@/pages/admin/index";
 
 function Router() {
   return (
@@ -25,6 +26,8 @@ function Router() {
       <Route path="/advisors/:id" component={AdvisorDetail} />
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/dashboard/:rest*" component={Dashboard} />
+      <Route path="/admin" component={AdminDashboard} />
+      <Route path="/admin/:rest*" component={AdminDashboard} />
       <Route component={NotFound} />
     </Switch>
   );

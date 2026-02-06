@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { TrendingUp, ChevronDown, User, LogOut, LayoutDashboard } from "lucide-react";
+import { TrendingUp, ChevronDown, User, LogOut, LayoutDashboard, ShieldCheck } from "lucide-react";
 
 export function Navbar() {
   const { user, logout } = useAuth();
@@ -59,6 +59,14 @@ export function Navbar() {
                   </Button>
                 </Link>
               )}
+              {user.role === "admin" && (
+                <Link href="/admin">
+                  <Button variant="outline" size="sm" data-testid="link-admin">
+                    <ShieldCheck className="w-4 h-4 mr-1" />
+                    Admin Panel
+                  </Button>
+                </Link>
+              )}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" size="sm" className="gap-1" data-testid="button-user-menu">
@@ -80,6 +88,14 @@ export function Navbar() {
                       <DropdownMenuItem data-testid="menu-dashboard">
                         <LayoutDashboard className="w-4 h-4 mr-2" />
                         Dashboard
+                      </DropdownMenuItem>
+                    </Link>
+                  )}
+                  {user.role === "admin" && (
+                    <Link href="/admin">
+                      <DropdownMenuItem data-testid="menu-admin">
+                        <ShieldCheck className="w-4 h-4 mr-2" />
+                        Admin Panel
                       </DropdownMenuItem>
                     </Link>
                   )}
