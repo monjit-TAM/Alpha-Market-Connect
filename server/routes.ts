@@ -4,17 +4,11 @@ import session from "express-session";
 import { storage } from "./storage";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
-import { readFileSync } from "fs";
-import { join, dirname } from "path";
-import { fileURLToPath } from "url";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { sendRegistrationNotification, sendUserWelcomeEmail, sendPasswordResetEmail, sendAdvisorAgreementEmail } from "./email";
 import { getLiveQuote, getLivePrices, setGrowwAccessToken, getGrowwTokenStatus } from "./groww";
 import type { Plan } from "@shared/schema";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const nseSymbols = JSON.parse(readFileSync(join(__dirname, "data", "nse-symbols.json"), "utf-8"));
+import nseSymbols from "./data/nse-symbols.json";
 
 const scryptAsync = promisify(scrypt);
 
