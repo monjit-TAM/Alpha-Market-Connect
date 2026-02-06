@@ -18,6 +18,13 @@ AlphaMarket is a SaaS marketplace platform connecting SEBI-registered Indian adv
 - **Auth**: Session-based with scrypt password hashing
 
 ## Recent Changes
+- Added comprehensive advisor call management: expandable strategy cards showing active/closed calls & positions with edit target/SL and close actions
+- Added NSE/BSE/MCX symbol autocomplete (165+ symbols) in Add Stock Call and Add Position sheets
+- Added subscription gating on strategy detail page: active recommendations locked behind subscription for non-subscribers
+- Added intraday auto-square-off scheduler (3:25 PM IST) that automatically closes active calls/positions for Intraday strategies
+- Added PATCH /api/calls/:id, POST /api/calls/:id/close, PATCH /api/positions/:id, POST /api/positions/:id/close routes
+- Added GET /api/strategies/:id/subscription-status route for checking subscription
+- Added GET /api/symbols/search?q=&segment= route for symbol autocomplete
 - Added Forgot Password flow with email-based password reset (token expires in 1 hour)
 - Login now accepts username OR email
 - Registration now sends welcome/confirmation email to the user (in addition to admin notification)
@@ -87,6 +94,10 @@ users, strategies, calls, positions, plans, subscriptions, content, scores
 - Search and filter users by role; strategies by status and type
 - New advisor registrations require SEBI Registration Number and Certificate URL
 - New advisors default to isApproved=false until admin approves
+
+## Key Files (New)
+- server/data/nse-symbols.json - Static NSE/BSE/MCX symbol list for autocomplete
+- server/scheduler.ts - Intraday auto-square-off scheduler
 
 ## Key API Routes
 - POST /api/auth/register, /api/auth/login, GET /api/auth/me, POST /api/auth/logout

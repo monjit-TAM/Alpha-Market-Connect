@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,12 +10,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, MoreVertical, Loader2, Pencil } from "lucide-react";
+import { Plus, MoreVertical, Loader2, Pencil, ChevronDown, ChevronRight, X, Search } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
-import type { Strategy, Plan } from "@shared/schema";
+import type { Strategy, Call, Position, Plan } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
 
 function getCallActionsForType(type: string): { label: string; mode: "stock" | "position" }[] {
@@ -43,6 +44,118 @@ function getCallActionsForType(type: string): { label: string; mode: "stock" | "
   }
 }
 
+interface SymbolResult {
+  symbol: string;
+  name: string;
+  exchange: string;
+  segment: string;
+  isFnO: boolean;
+}
+
+function SymbolAutocomplete({
+  value,
+  onChange,
+  segment,
+  testId,
+}: {
+  value: string;
+  onChange: (val: string) => void;
+  segment?: string;
+  testId?: string;
+}) {
+  const [query, setQuery] = useState(value);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [results, setResults] = useState<SymbolResult[]>([]);
+  const [loading, setLoading] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setQuery(value);
+  }, [value]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const searchSymbols = (q: string) => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (q.length < 1) {
+      setResults([]);
+      setShowDropdown(false);
+      return;
+    }
+    setLoading(true);
+    timerRef.current = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({ q });
+        if (segment) params.set("segment", segment);
+        const res = await fetch(`/api/symbols/search?${params}`);
+        const data = await res.json();
+        setResults(data);
+        setShowDropdown(true);
+      } catch {
+        setResults([]);
+      } finally {
+        setLoading(false);
+      }
+    }, 200);
+  };
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <div className="relative">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <Input
+          value={query}
+          onChange={(e) => {
+            const v = e.target.value;
+            setQuery(v);
+            onChange(v);
+            searchSymbols(v);
+          }}
+          onFocus={() => {
+            if (query.length >= 1) searchSymbols(query);
+          }}
+          placeholder="Search symbol..."
+          className="pl-8"
+          data-testid={testId || "input-symbol-search"}
+        />
+        {loading && <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />}
+      </div>
+      {showDropdown && results.length > 0 && (
+        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-popover border rounded-md shadow-md max-h-48 overflow-y-auto">
+          {results.map((r) => (
+            <button
+              key={`${r.exchange}-${r.symbol}`}
+              type="button"
+              className="w-full text-left px-3 py-2 text-sm hover-elevate flex items-center justify-between gap-2"
+              onClick={() => {
+                onChange(r.symbol);
+                setQuery(r.symbol);
+                setShowDropdown(false);
+              }}
+              data-testid={`symbol-option-${r.symbol}`}
+            >
+              <div>
+                <span className="font-medium">{r.symbol}</span>
+                <span className="text-muted-foreground ml-2 text-xs">{r.name}</span>
+              </div>
+              <Badge variant="secondary" className="text-xs">{r.exchange}</Badge>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function StrategyManagement() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -51,6 +164,7 @@ export default function StrategyManagement() {
   const [showAddStock, setShowAddStock] = useState(false);
   const [showAddPosition, setShowAddPosition] = useState(false);
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
+  const [expandedStrategy, setExpandedStrategy] = useState<string | null>(null);
 
   const { data: strategies, isLoading } = useQuery<Strategy[]>({
     queryKey: ["/api/advisor/strategies"],
@@ -113,7 +227,7 @@ export default function StrategyManagement() {
   });
 
   return (
-    <div className="space-y-4 max-w-5xl">
+    <div className="space-y-4 max-w-6xl">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h2 className="text-lg font-semibold">
           Manage Strategies ({strategies?.length || 0})
@@ -136,116 +250,95 @@ export default function StrategyManagement() {
           </CardContent>
         </Card>
       ) : (
-        <Card>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-muted/30">
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Strategy Name</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Type</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Horizon</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Description</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Created</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {strategies.map((s) => {
-                    const callActions = getCallActionsForType(s.type);
-                    return (
-                      <tr key={s.id} className="border-b last:border-0 hover-elevate" data-testid={`row-strategy-${s.id}`}>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <button
-                              className="text-primary"
+        <div className="space-y-3">
+          {strategies.map((s) => {
+            const callActions = getCallActionsForType(s.type);
+            const isExpanded = expandedStrategy === s.id;
+            return (
+              <Card key={s.id} data-testid={`card-strategy-${s.id}`}>
+                <CardContent className="p-0">
+                  <div
+                    className="flex items-center gap-3 px-4 py-3 cursor-pointer hover-elevate flex-wrap"
+                    onClick={() => setExpandedStrategy(isExpanded ? null : s.id)}
+                    data-testid={`row-strategy-${s.id}`}
+                  >
+                    <div className="flex items-center gap-1 text-muted-foreground">
+                      {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium truncate">{s.name}</div>
+                      <div className="text-xs text-muted-foreground">{s.type} {s.horizon ? `| ${s.horizon}` : ""}</div>
+                    </div>
+                    <Badge variant={s.status === "Published" ? "default" : "secondary"}>
+                      {s.status}
+                    </Badge>
+                    <div className="text-xs text-muted-foreground">
+                      {s.createdAt ? new Date(s.createdAt).toLocaleDateString("en-IN") : ""}
+                    </div>
+                    <div onClick={(e) => e.stopPropagation()}>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" data-testid={`button-actions-${s.id}`}>
+                            <MoreVertical className="w-4 h-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setSelectedStrategy(s);
+                              setShowEditStrategy(true);
+                            }}
+                            data-testid={`button-edit-strategy-${s.id}`}
+                          >
+                            <Pencil className="w-4 h-4 mr-2" />
+                            Edit Strategy
+                          </DropdownMenuItem>
+                          {callActions.map((action) => (
+                            <DropdownMenuItem
+                              key={action.label}
                               onClick={() => {
                                 setSelectedStrategy(s);
-                                const firstAction = callActions[0];
-                                if (firstAction.mode === "stock") setShowAddStock(true);
+                                if (action.mode === "stock") setShowAddStock(true);
                                 else setShowAddPosition(true);
                               }}
-                              data-testid={`button-add-stock-${s.id}`}
+                              data-testid={`button-action-${action.label.toLowerCase().replace(/\s+/g, "-")}-${s.id}`}
                             >
-                              <Plus className="w-4 h-4" />
-                            </button>
-                            <span className="font-medium">{s.name}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">{s.type}</td>
-                        <td className="px-4 py-3 text-muted-foreground">{s.horizon || "--"}</td>
-                        <td className="px-4 py-3 max-w-[200px] truncate text-muted-foreground">
-                          {s.description || "--"}
-                        </td>
-                        <td className="px-4 py-3">
-                          <Badge variant={s.status === "Published" ? "default" : "secondary"}>
-                            {s.status}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-3 text-xs text-muted-foreground">
-                          {s.createdAt ? new Date(s.createdAt).toLocaleDateString("en-IN") : "--"}
-                        </td>
-                        <td className="px-4 py-3">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" data-testid={`button-actions-${s.id}`}>
-                                <MoreVertical className="w-4 h-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem
-                                onClick={() => {
-                                  setSelectedStrategy(s);
-                                  setShowEditStrategy(true);
-                                }}
-                                data-testid={`button-edit-strategy-${s.id}`}
-                              >
-                                <Pencil className="w-4 h-4 mr-2" />
-                                Edit Strategy
-                              </DropdownMenuItem>
-                              {callActions.map((action) => (
-                                <DropdownMenuItem
-                                  key={action.label}
-                                  onClick={() => {
-                                    setSelectedStrategy(s);
-                                    if (action.mode === "stock") setShowAddStock(true);
-                                    else setShowAddPosition(true);
-                                  }}
-                                  data-testid={`button-action-${action.label.toLowerCase().replace(/\s+/g, "-")}-${s.id}`}
-                                >
-                                  {action.label}
-                                </DropdownMenuItem>
-                              ))}
-                              <DropdownMenuItem
-                                onClick={() =>
-                                  toggleStatusMutation.mutate({
-                                    id: s.id,
-                                    status: s.status === "Published" ? "Draft" : "Published",
-                                  })
-                                }
-                                data-testid={`button-toggle-status-${s.id}`}
-                              >
-                                {s.status === "Published" ? "Unpublish" : "Publish"}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                className="text-destructive"
-                                onClick={() => deleteMutation.mutate(s.id)}
-                                data-testid={`button-delete-strategy-${s.id}`}
-                              >
-                                Delete
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
+                              <Plus className="w-4 h-4 mr-2" />
+                              {action.label}
+                            </DropdownMenuItem>
+                          ))}
+                          <DropdownMenuItem
+                            onClick={() =>
+                              toggleStatusMutation.mutate({
+                                id: s.id,
+                                status: s.status === "Published" ? "Draft" : "Published",
+                              })
+                            }
+                            data-testid={`button-toggle-status-${s.id}`}
+                          >
+                            {s.status === "Published" ? "Unpublish" : "Publish"}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="text-destructive"
+                            onClick={() => deleteMutation.mutate(s.id)}
+                            data-testid={`button-delete-strategy-${s.id}`}
+                          >
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  </div>
+                  {isExpanded && (
+                    <div className="border-t px-4 py-3">
+                      <StrategyCallsPanel strategy={s} />
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
       )}
 
       <StrategyDialog
@@ -282,6 +375,471 @@ export default function StrategyManagement() {
         strategy={selectedStrategy}
       />
     </div>
+  );
+}
+
+function StrategyCallsPanel({ strategy }: { strategy: Strategy }) {
+  const { toast } = useToast();
+  const [editingCall, setEditingCall] = useState<Call | null>(null);
+  const [editingPosition, setEditingPosition] = useState<Position | null>(null);
+  const [closingCall, setClosingCall] = useState<Call | null>(null);
+
+  const { data: calls, isLoading: callsLoading } = useQuery<Call[]>({
+    queryKey: ["/api/advisor/strategies", strategy.id, "calls"],
+    queryFn: async () => {
+      const res = await fetch(`/api/advisor/strategies/${strategy.id}/calls`);
+      if (!res.ok) throw new Error("Failed to load calls");
+      return res.json();
+    },
+  });
+
+  const { data: positions, isLoading: positionsLoading } = useQuery<Position[]>({
+    queryKey: ["/api/advisor/strategies", strategy.id, "positions"],
+    queryFn: async () => {
+      const res = await fetch(`/api/advisor/strategies/${strategy.id}/positions`);
+      if (!res.ok) throw new Error("Failed to load positions");
+      return res.json();
+    },
+  });
+
+  const activeCalls = calls?.filter((c) => c.status === "Active") || [];
+  const closedCalls = calls?.filter((c) => c.status === "Closed") || [];
+  const activePositions = positions?.filter((p) => p.status === "Active") || [];
+  const closedPositions = positions?.filter((p) => p.status === "Closed") || [];
+
+  const hasPositions = (positions?.length || 0) > 0;
+  const loading = callsLoading || positionsLoading;
+
+  if (loading) {
+    return <div className="py-4"><Skeleton className="h-20 w-full" /></div>;
+  }
+
+  const totalCalls = (calls?.length || 0) + (positions?.length || 0);
+  if (totalCalls === 0) {
+    return (
+      <div className="py-4 text-center text-muted-foreground text-sm">
+        No calls or positions yet. Use the actions menu to add one.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <Tabs defaultValue="active">
+        <TabsList>
+          <TabsTrigger value="active" data-testid="tab-active-calls">
+            Active ({activeCalls.length + activePositions.length})
+          </TabsTrigger>
+          <TabsTrigger value="closed" data-testid="tab-closed-calls">
+            Closed ({closedCalls.length + closedPositions.length})
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="active" className="mt-3">
+          {activeCalls.length === 0 && activePositions.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-2">No active calls</p>
+          ) : (
+            <div className="space-y-2">
+              {activeCalls.map((call) => (
+                <CallRow
+                  key={call.id}
+                  call={call}
+                  onEdit={() => setEditingCall(call)}
+                  onClose={() => setClosingCall(call)}
+                />
+              ))}
+              {activePositions.map((pos) => (
+                <PositionRow
+                  key={pos.id}
+                  position={pos}
+                  onEdit={() => setEditingPosition(pos)}
+                  strategyId={strategy.id}
+                />
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="closed" className="mt-3">
+          {closedCalls.length === 0 && closedPositions.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-2">No closed calls</p>
+          ) : (
+            <div className="space-y-2">
+              {closedCalls.map((call) => (
+                <CallRow key={call.id} call={call} />
+              ))}
+              {closedPositions.map((pos) => (
+                <PositionRow key={pos.id} position={pos} strategyId={strategy.id} />
+              ))}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
+
+      <EditCallDialog
+        call={editingCall}
+        onClose={() => setEditingCall(null)}
+        strategyId={strategy.id}
+      />
+
+      <EditPositionDialog
+        position={editingPosition}
+        onClose={() => setEditingPosition(null)}
+        strategyId={strategy.id}
+      />
+
+      <CloseCallDialog
+        call={closingCall}
+        onClose={() => setClosingCall(null)}
+        strategyId={strategy.id}
+      />
+    </div>
+  );
+}
+
+function CallRow({
+  call,
+  onEdit,
+  onClose,
+}: {
+  call: Call;
+  onEdit?: () => void;
+  onClose?: () => void;
+}) {
+  const isActive = call.status === "Active";
+  return (
+    <div
+      className="flex items-center gap-3 p-3 rounded-md border text-sm flex-wrap"
+      data-testid={`call-row-${call.id}`}
+    >
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-medium">{call.stockName}</span>
+          <Badge variant={call.action === "Buy" ? "default" : "secondary"}>
+            {call.action}
+          </Badge>
+          {!isActive && (
+            <Badge variant="secondary">Closed</Badge>
+          )}
+        </div>
+        <div className="text-xs text-muted-foreground mt-1 flex items-center gap-3 flex-wrap">
+          {call.buyRangeStart && <span>Entry: {Number(call.buyRangeStart).toFixed(2)}{call.buyRangeEnd ? ` - ${Number(call.buyRangeEnd).toFixed(2)}` : ""}</span>}
+          {call.targetPrice && <span>Target: {Number(call.targetPrice).toFixed(2)}</span>}
+          {call.stopLoss && <span>SL: {Number(call.stopLoss).toFixed(2)}</span>}
+          {call.sellPrice && <span>Exit: {Number(call.sellPrice).toFixed(2)}</span>}
+          {call.gainPercent && (
+            <span className={Number(call.gainPercent) >= 0 ? "text-green-600" : "text-red-600"}>
+              {Number(call.gainPercent) >= 0 ? "+" : ""}{Number(call.gainPercent).toFixed(2)}%
+            </span>
+          )}
+          <span>{call.callDate ? new Date(call.callDate).toLocaleDateString("en-IN") : ""}</span>
+        </div>
+      </div>
+      {isActive && (
+        <div className="flex items-center gap-1">
+          {onEdit && (
+            <Button variant="ghost" size="icon" onClick={onEdit} data-testid={`button-edit-call-${call.id}`}>
+              <Pencil className="w-4 h-4" />
+            </Button>
+          )}
+          {onClose && (
+            <Button variant="ghost" size="icon" onClick={onClose} data-testid={`button-close-call-${call.id}`}>
+              <X className="w-4 h-4" />
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PositionRow({
+  position,
+  onEdit,
+  strategyId,
+}: {
+  position: Position;
+  onEdit?: () => void;
+  strategyId: string;
+}) {
+  const { toast } = useToast();
+  const isActive = position.status === "Active";
+
+  const closeMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", `/api/positions/${position.id}/close`, {});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/advisor/strategies", strategyId, "positions"] });
+      toast({ title: "Position closed" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <div
+      className="flex items-center gap-3 p-3 rounded-md border text-sm flex-wrap"
+      data-testid={`position-row-${position.id}`}
+    >
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-medium">{position.symbol || "Position"}</span>
+          <Badge variant="secondary">{position.segment}</Badge>
+          {position.callPut && <Badge variant="secondary">{position.callPut}</Badge>}
+          <Badge variant={position.buySell === "Buy" ? "default" : "secondary"}>
+            {position.buySell}
+          </Badge>
+          {!isActive && <Badge variant="secondary">Closed</Badge>}
+        </div>
+        <div className="text-xs text-muted-foreground mt-1 flex items-center gap-3 flex-wrap">
+          {position.strikePrice && <span>Strike: {Number(position.strikePrice).toFixed(2)}</span>}
+          {position.entryPrice && <span>Entry: {Number(position.entryPrice).toFixed(2)}</span>}
+          {position.target && <span>Target: {position.target}</span>}
+          {position.stopLoss && <span>SL: {position.stopLoss}</span>}
+          {position.lots && <span>Lots: {position.lots}</span>}
+          {position.expiry && <span>Exp: {position.expiry}</span>}
+          <span>{position.createdAt ? new Date(position.createdAt).toLocaleDateString("en-IN") : ""}</span>
+        </div>
+      </div>
+      {isActive && (
+        <div className="flex items-center gap-1">
+          {onEdit && (
+            <Button variant="ghost" size="icon" onClick={onEdit} data-testid={`button-edit-position-${position.id}`}>
+              <Pencil className="w-4 h-4" />
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => closeMutation.mutate()}
+            disabled={closeMutation.isPending}
+            data-testid={`button-close-position-${position.id}`}
+          >
+            {closeMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EditCallDialog({
+  call,
+  onClose,
+  strategyId,
+}: {
+  call: Call | null;
+  onClose: () => void;
+  strategyId: string;
+}) {
+  const { toast } = useToast();
+  const [targetPrice, setTargetPrice] = useState("");
+  const [stopLoss, setStopLoss] = useState("");
+
+  useEffect(() => {
+    if (call) {
+      setTargetPrice(call.targetPrice || "");
+      setStopLoss(call.stopLoss || "");
+    }
+  }, [call]);
+
+  const mutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("PATCH", `/api/calls/${call?.id}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/advisor/strategies", strategyId, "calls"] });
+      onClose();
+      toast({ title: "Call updated" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <Dialog open={!!call} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Edit Call - {call?.stockName}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Target Price</Label>
+            <Input
+              type="number"
+              step="0.01"
+              value={targetPrice}
+              onChange={(e) => setTargetPrice(e.target.value)}
+              data-testid="input-edit-target-price"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Stop Loss</Label>
+            <Input
+              type="number"
+              step="0.01"
+              value={stopLoss}
+              onChange={(e) => setStopLoss(e.target.value)}
+              data-testid="input-edit-stop-loss"
+            />
+          </div>
+          <Button
+            className="w-full"
+            onClick={() => mutation.mutate({ targetPrice, stopLoss })}
+            disabled={mutation.isPending}
+            data-testid="button-save-edit-call"
+          >
+            {mutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+            Update
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EditPositionDialog({
+  position,
+  onClose,
+  strategyId,
+}: {
+  position: Position | null;
+  onClose: () => void;
+  strategyId: string;
+}) {
+  const { toast } = useToast();
+  const [target, setTarget] = useState("");
+  const [stopLoss, setStopLoss] = useState("");
+
+  useEffect(() => {
+    if (position) {
+      setTarget(position.target || "");
+      setStopLoss(position.stopLoss || "");
+    }
+  }, [position]);
+
+  const mutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("PATCH", `/api/positions/${position?.id}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/advisor/strategies", strategyId, "positions"] });
+      onClose();
+      toast({ title: "Position updated" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <Dialog open={!!position} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Edit Position - {position?.symbol}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Target</Label>
+            <Input
+              value={target}
+              onChange={(e) => setTarget(e.target.value)}
+              data-testid="input-edit-position-target"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Stop Loss</Label>
+            <Input
+              value={stopLoss}
+              onChange={(e) => setStopLoss(e.target.value)}
+              data-testid="input-edit-position-stop-loss"
+            />
+          </div>
+          <Button
+            className="w-full"
+            onClick={() => mutation.mutate({ target, stopLoss })}
+            disabled={mutation.isPending}
+            data-testid="button-save-edit-position"
+          >
+            {mutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+            Update
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function CloseCallDialog({
+  call,
+  onClose,
+  strategyId,
+}: {
+  call: Call | null;
+  onClose: () => void;
+  strategyId: string;
+}) {
+  const { toast } = useToast();
+  const [sellPrice, setSellPrice] = useState("");
+
+  useEffect(() => {
+    if (call) setSellPrice("");
+  }, [call]);
+
+  const mutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", `/api/calls/${call?.id}/close`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/advisor/strategies", strategyId, "calls"] });
+      onClose();
+      toast({ title: "Call closed" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <Dialog open={!!call} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Close Call - {call?.stockName}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="text-sm text-muted-foreground">
+            Entry: {call?.buyRangeStart ? Number(call.buyRangeStart).toFixed(2) : call?.entryPrice ? Number(call.entryPrice).toFixed(2) : "N/A"}
+          </div>
+          <div className="space-y-1.5">
+            <Label>Exit / Sell Price</Label>
+            <Input
+              type="number"
+              step="0.01"
+              value={sellPrice}
+              onChange={(e) => setSellPrice(e.target.value)}
+              placeholder="Enter exit price"
+              data-testid="input-sell-price"
+            />
+          </div>
+          <Button
+            className="w-full"
+            variant="destructive"
+            onClick={() => mutation.mutate({ sellPrice: sellPrice || undefined })}
+            disabled={mutation.isPending}
+            data-testid="button-confirm-close-call"
+          >
+            {mutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+            Close Call
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -512,6 +1070,7 @@ function AddStockSheet({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/advisor/strategies"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/advisor/strategies", strategy?.id, "calls"] });
       onOpenChange(false);
       toast({ title: "Stock call added" });
       setForm({
@@ -545,20 +1104,22 @@ function AddStockSheet({
     });
   };
 
+  const segmentForSearch = strategy?.type === "Commodity" || strategy?.type === "CommodityFuture" ? "Commodity" : "Equity";
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="overflow-y-auto">
         <SheetHeader>
-          <SheetTitle>Add Stock</SheetTitle>
+          <SheetTitle>Add Stock Call</SheetTitle>
         </SheetHeader>
         <form onSubmit={handleSubmit} className="space-y-4 mt-4">
           <div className="space-y-1.5">
             <Label>Stock Name</Label>
-            <Input
+            <SymbolAutocomplete
               value={form.stockName}
-              onChange={(e) => setForm({ ...form, stockName: e.target.value })}
-              required
-              data-testid="input-stock-name"
+              onChange={(v) => setForm({ ...form, stockName: v })}
+              segment={segmentForSearch}
+              testId="input-stock-name"
             />
           </div>
           <div className="space-y-1.5">
@@ -594,7 +1155,7 @@ function AddStockSheet({
             />
           </div>
           <div className="space-y-1.5">
-            <Label>Target Price Range</Label>
+            <Label>Target Price</Label>
             <Input
               type="number"
               step="0.01"
@@ -691,6 +1252,7 @@ function AddPositionSheet({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/advisor/strategies"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/advisor/strategies", strategy?.id, "positions"] });
       onOpenChange(false);
       toast({ title: "Position added" });
     },
@@ -711,6 +1273,8 @@ function AddPositionSheet({
       stopLoss: form.stopLoss || undefined,
     });
   };
+
+  const segmentForSearch = form.segment === "Equity" ? "Equity" : form.segment === "Index" ? "Index" : "FnO";
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -773,10 +1337,11 @@ function AddPositionSheet({
           </div>
           <div className="space-y-1.5">
             <Label>Symbol</Label>
-            <Input
+            <SymbolAutocomplete
               value={form.symbol}
-              onChange={(e) => setForm({ ...form, symbol: e.target.value })}
-              data-testid="input-symbol"
+              onChange={(v) => setForm({ ...form, symbol: v })}
+              segment={segmentForSearch}
+              testId="input-symbol"
             />
           </div>
           <div className="space-y-1.5">

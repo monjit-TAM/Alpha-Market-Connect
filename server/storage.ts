@@ -37,6 +37,14 @@ export interface IStorage {
 
   getPositions(strategyId: string): Promise<Position[]>;
   createPosition(data: InsertPosition): Promise<Position>;
+  updatePosition(id: string, data: Partial<Position>): Promise<Position>;
+  getCall(id: string): Promise<Call | undefined>;
+  getPosition(id: string): Promise<Position | undefined>;
+  getActiveCallsByStrategy(strategyId: string): Promise<Call[]>;
+  getActivePositionsByStrategy(strategyId: string): Promise<Position[]>;
+  getUserSubscriptionForStrategy(userId: string, strategyId: string): Promise<Subscription | undefined>;
+  getAllActiveCalls(): Promise<(Call & { strategy?: Strategy })[]>;
+  getAllActivePositions(): Promise<(Position & { strategy?: Strategy })[]>;
 
   getPlans(advisorId: string): Promise<Plan[]>;
   createPlan(data: InsertPlan): Promise<Plan>;
@@ -190,6 +198,56 @@ export class DatabaseStorage implements IStorage {
   async createPosition(data: InsertPosition): Promise<Position> {
     const [p] = await db.insert(positions).values(data).returning();
     return p;
+  }
+
+  async updatePosition(id: string, data: Partial<Position>): Promise<Position> {
+    const [p] = await db.update(positions).set(data).where(eq(positions.id, id)).returning();
+    return p;
+  }
+
+  async getCall(id: string): Promise<Call | undefined> {
+    const [c] = await db.select().from(calls).where(eq(calls.id, id));
+    return c;
+  }
+
+  async getPosition(id: string): Promise<Position | undefined> {
+    const [p] = await db.select().from(positions).where(eq(positions.id, id));
+    return p;
+  }
+
+  async getActiveCallsByStrategy(strategyId: string): Promise<Call[]> {
+    return db.select().from(calls).where(and(eq(calls.strategyId, strategyId), eq(calls.status, "Active"))).orderBy(desc(calls.createdAt));
+  }
+
+  async getActivePositionsByStrategy(strategyId: string): Promise<Position[]> {
+    return db.select().from(positions).where(and(eq(positions.strategyId, strategyId), eq(positions.status, "Active"))).orderBy(desc(positions.createdAt));
+  }
+
+  async getUserSubscriptionForStrategy(userId: string, strategyId: string): Promise<Subscription | undefined> {
+    const [sub] = await db.select().from(subscriptions).where(
+      and(eq(subscriptions.userId, userId), eq(subscriptions.strategyId, strategyId), eq(subscriptions.status, "active"))
+    );
+    return sub;
+  }
+
+  async getAllActiveCalls(): Promise<(Call & { strategy?: Strategy })[]> {
+    const result = await db.select({
+      call: calls,
+      strategy: strategies,
+    }).from(calls)
+      .leftJoin(strategies, eq(calls.strategyId, strategies.id))
+      .where(eq(calls.status, "Active"));
+    return result.map(r => ({ ...r.call, strategy: r.strategy || undefined }));
+  }
+
+  async getAllActivePositions(): Promise<(Position & { strategy?: Strategy })[]> {
+    const result = await db.select({
+      position: positions,
+      strategy: strategies,
+    }).from(positions)
+      .leftJoin(strategies, eq(positions.strategyId, strategies.id))
+      .where(eq(positions.status, "Active"));
+    return result.map(r => ({ ...r.position, strategy: r.strategy || undefined }));
   }
 
   async getPlans(advisorId: string): Promise<Plan[]> {

@@ -4,9 +4,16 @@ import session from "express-session";
 import { storage } from "./storage";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
+import { readFileSync } from "fs";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { sendRegistrationNotification, sendUserWelcomeEmail, sendPasswordResetEmail, sendAdvisorAgreementEmail } from "./email";
 import type { Plan } from "@shared/schema";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const nseSymbols = JSON.parse(readFileSync(join(__dirname, "data", "nse-symbols.json"), "utf-8"));
 
 const scryptAsync = promisify(scrypt);
 
@@ -313,10 +320,42 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/symbols/search", async (req, res) => {
+    try {
+      const q = ((req.query.q as string) || "").toLowerCase().trim();
+      const segment = (req.query.segment as string) || "";
+      if (!q || q.length < 1) return res.json([]);
+      let filtered = nseSymbols.filter((s: any) => {
+        const matchesQuery = s.symbol.toLowerCase().includes(q) || s.name.toLowerCase().includes(q);
+        if (!matchesQuery) return false;
+        if (segment === "Equity") return s.segment === "Equity";
+        if (segment === "FnO") return s.isFnO === true;
+        if (segment === "Commodity") return s.segment === "Commodity";
+        if (segment === "Index") return s.segment === "Index";
+        return true;
+      });
+      res.json(filtered.slice(0, 20));
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
   app.get("/api/strategies/:id/calls", async (req, res) => {
     try {
-      const c = await storage.getCalls(req.params.id);
-      res.json(c);
+      const allCalls = await storage.getCalls(req.params.id);
+      const userId = req.session?.userId;
+
+      if (userId) {
+        const currentUser = await storage.getUser(userId);
+        if (currentUser?.role === "admin" || currentUser?.role === "advisor") {
+          return res.json(allCalls);
+        }
+        const sub = await storage.getUserSubscriptionForStrategy(userId, req.params.id);
+        if (sub) return res.json(allCalls);
+      }
+
+      const closedOnly = allCalls.filter((c: any) => c.status === "Closed");
+      res.json(closedOnly);
     } catch (err: any) {
       res.status(500).send(err.message);
     }
@@ -437,6 +476,132 @@ export async function registerRoutes(
         strategyId: req.params.id,
       });
       res.json(p);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.get("/api/advisor/strategies/:id/calls", requireAdvisor, async (req, res) => {
+    try {
+      const strategy = await storage.getStrategy(req.params.id as string);
+      if (!strategy || strategy.advisorId !== req.session.userId) {
+        return res.status(403).send("Not authorized");
+      }
+      const c = await storage.getCalls(req.params.id as string);
+      res.json(c);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.get("/api/advisor/strategies/:id/positions", requireAdvisor, async (req, res) => {
+    try {
+      const strategy = await storage.getStrategy(req.params.id as string);
+      if (!strategy || strategy.advisorId !== req.session.userId) {
+        return res.status(403).send("Not authorized");
+      }
+      const p = await storage.getPositions(req.params.id as string);
+      res.json(p);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.patch("/api/calls/:id", requireAdvisor, async (req, res) => {
+    try {
+      const call = await storage.getCall(req.params.id as string);
+      if (!call) return res.status(404).send("Call not found");
+      const strategy = await storage.getStrategy(call.strategyId);
+      if (!strategy || strategy.advisorId !== req.session.userId) {
+        return res.status(403).send("Not authorized");
+      }
+      if (call.status !== "Active") {
+        return res.status(400).send("Can only edit active calls");
+      }
+      const { targetPrice, stopLoss } = req.body;
+      const updated = await storage.updateCall(call.id, {
+        ...(targetPrice !== undefined ? { targetPrice } : {}),
+        ...(stopLoss !== undefined ? { stopLoss } : {}),
+      });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.post("/api/calls/:id/close", requireAdvisor, async (req, res) => {
+    try {
+      const call = await storage.getCall(req.params.id as string);
+      if (!call) return res.status(404).send("Call not found");
+      const strategy = await storage.getStrategy(call.strategyId);
+      if (!strategy || strategy.advisorId !== req.session.userId) {
+        return res.status(403).send("Not authorized");
+      }
+      if (call.status !== "Active") {
+        return res.status(400).send("Call is already closed");
+      }
+      const { sellPrice, reason } = req.body || {};
+      const entryPrice = Number(call.entryPrice || call.buyRangeStart || 0);
+      const exitPrice = sellPrice ? Number(sellPrice) : entryPrice;
+      const gainPercent = entryPrice > 0 ? (((exitPrice - entryPrice) / entryPrice) * 100).toFixed(2) : "0";
+      const updated = await storage.updateCall(call.id, {
+        status: "Closed",
+        sellPrice: String(exitPrice),
+        gainPercent,
+        exitDate: new Date(),
+      });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.patch("/api/positions/:id", requireAdvisor, async (req, res) => {
+    try {
+      const pos = await storage.getPosition(req.params.id as string);
+      if (!pos) return res.status(404).send("Position not found");
+      const strategy = await storage.getStrategy(pos.strategyId);
+      if (!strategy || strategy.advisorId !== req.session.userId) {
+        return res.status(403).send("Not authorized");
+      }
+      if (pos.status !== "Active") {
+        return res.status(400).send("Can only edit active positions");
+      }
+      const { target, stopLoss } = req.body;
+      const updated = await storage.updatePosition(pos.id, {
+        ...(target !== undefined ? { target } : {}),
+        ...(stopLoss !== undefined ? { stopLoss } : {}),
+      });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.post("/api/positions/:id/close", requireAdvisor, async (req, res) => {
+    try {
+      const pos = await storage.getPosition(req.params.id as string);
+      if (!pos) return res.status(404).send("Position not found");
+      const strategy = await storage.getStrategy(pos.strategyId);
+      if (!strategy || strategy.advisorId !== req.session.userId) {
+        return res.status(403).send("Not authorized");
+      }
+      if (pos.status !== "Active") {
+        return res.status(400).send("Position is already closed");
+      }
+      const updated = await storage.updatePosition(pos.id, {
+        status: "Closed",
+      });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.get("/api/strategies/:id/subscription-status", requireAuth, async (req, res) => {
+    try {
+      const sub = await storage.getUserSubscriptionForStrategy(req.session.userId!, req.params.id as string);
+      res.json({ subscribed: !!sub });
     } catch (err: any) {
       res.status(500).send(err.message);
     }

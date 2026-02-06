@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
-import { TrendingUp, Calendar, BarChart3, Star, Lock, Zap, Shield } from "lucide-react";
+import { TrendingUp, Calendar, BarChart3, Star, Lock, Zap, Shield, Eye } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Strategy, Call, User } from "@shared/schema";
 import { useAuth } from "@/lib/auth";
@@ -32,6 +32,21 @@ export default function StrategyDetail() {
     queryKey: ["/api/strategies", id, "calls"],
     enabled: !!id,
   });
+
+  const { data: subStatus } = useQuery<{ subscribed: boolean }>({
+    queryKey: ["/api/strategies", id, "subscription-status"],
+    queryFn: async () => {
+      const res = await fetch(`/api/strategies/${id}/subscription-status`);
+      if (!res.ok) return { subscribed: false };
+      return res.json();
+    },
+    enabled: !!id && !!user,
+  });
+
+  const isSubscribed = subStatus?.subscribed || false;
+  const isAdvisor = user?.role === "advisor";
+  const isAdmin = user?.role === "admin";
+  const canViewActiveCalls = isSubscribed || isAdvisor || isAdmin;
 
   const handleSubscribe = () => {
     if (!user) {
@@ -197,14 +212,28 @@ export default function StrategyDetail() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {activeCalls.length === 0 ? (
-              <div className="text-center py-6 text-sm text-muted-foreground">
-                <Lock className="w-8 h-8 mx-auto mb-2 text-muted-foreground/50" />
-                <p>Currently there are no active trades available in this strategy.</p>
-                <p>Your advisor might add new calls soon.</p>
-                <Button variant="outline" size="sm" className="mt-3" onClick={handleSubscribe} data-testid="button-subscribe-view">
-                  Subscribe to view
+            {!canViewActiveCalls ? (
+              <div className="text-center py-8 space-y-3" data-testid="locked-active-calls">
+                <div className="w-16 h-16 rounded-full bg-muted/80 flex items-center justify-center mx-auto">
+                  <Lock className="w-8 h-8 text-muted-foreground" />
+                </div>
+                <div className="space-y-1">
+                  <p className="font-medium">Subscribe to view active recommendations</p>
+                  <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                    Active trades and live calls are only available to subscribers. Subscribe now to get real-time trade alerts.
+                  </p>
+                </div>
+                <div className="flex items-center justify-center gap-4 text-xs text-muted-foreground">
+                  <span className="flex items-center gap-1"><Eye className="w-3 h-3" /> {activeCalls.length} active call{activeCalls.length !== 1 ? "s" : ""}</span>
+                  <span className="flex items-center gap-1"><Shield className="w-3 h-3" /> SEBI Registered</span>
+                </div>
+                <Button onClick={handleSubscribe} data-testid="button-subscribe-unlock">
+                  Subscribe to Unlock
                 </Button>
+              </div>
+            ) : activeCalls.length === 0 ? (
+              <div className="text-center py-6 text-sm text-muted-foreground">
+                <p>No active trades at the moment. New calls will appear here.</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
