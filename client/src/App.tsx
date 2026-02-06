@@ -13,6 +13,8 @@ import AdvisorsListing from "@/pages/advisors-listing";
 import AdvisorDetail from "@/pages/advisor-detail";
 import Dashboard from "@/pages/dashboard/index";
 import AdminDashboard from "@/pages/admin/index";
+import MarketOutlook from "@/pages/market-outlook";
+import LearnPage from "@/pages/learn";
 
 function Router() {
   return (
@@ -24,6 +26,8 @@ function Router() {
       <Route path="/strategies/:id" component={StrategyDetail} />
       <Route path="/advisors" component={AdvisorsListing} />
       <Route path="/advisors/:id" component={AdvisorDetail} />
+      <Route path="/market-outlook" component={MarketOutlook} />
+      <Route path="/learn" component={LearnPage} />
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/dashboard/:rest*" component={Dashboard} />
       <Route path="/admin" component={AdminDashboard} />

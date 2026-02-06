@@ -178,6 +178,15 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/content/public/:type", async (req, res) => {
+    try {
+      const items = await storage.getPublicContentByType(req.params.type);
+      res.json(items);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
   app.get("/api/live-call-counts", async (_req, res) => {
     try {
       const strats = await storage.getPublishedStrategies();

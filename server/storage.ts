@@ -46,6 +46,7 @@ export interface IStorage {
   createSubscription(data: InsertSubscription): Promise<Subscription>;
 
   getContent(advisorId: string): Promise<Content[]>;
+  getPublicContentByType(type: string): Promise<(Content & { advisor: { id: string; username: string; companyName: string | null; logoUrl: string | null } })[]>;
   createContent(data: InsertContent): Promise<Content>;
   deleteContent(id: string): Promise<void>;
 
@@ -209,6 +210,40 @@ export class DatabaseStorage implements IStorage {
 
   async getContent(advisorId: string): Promise<Content[]> {
     return db.select().from(content).where(eq(content.advisorId, advisorId)).orderBy(desc(content.createdAt));
+  }
+
+  async getPublicContentByType(type: string) {
+    const rows = await db
+      .select({
+        id: content.id,
+        advisorId: content.advisorId,
+        title: content.title,
+        type: content.type,
+        body: content.body,
+        createdAt: content.createdAt,
+        advisorUsername: users.username,
+        advisorCompanyName: users.companyName,
+        advisorLogoUrl: users.logoUrl,
+      })
+      .from(content)
+      .innerJoin(users, eq(content.advisorId, users.id))
+      .where(and(eq(content.type, type), eq(users.role, "advisor"), eq(users.isApproved, true)))
+      .orderBy(desc(content.createdAt));
+
+    return rows.map((r) => ({
+      id: r.id,
+      advisorId: r.advisorId,
+      title: r.title,
+      type: r.type,
+      body: r.body,
+      createdAt: r.createdAt,
+      advisor: {
+        id: r.advisorId,
+        username: r.advisorUsername,
+        companyName: r.advisorCompanyName,
+        logoUrl: r.advisorLogoUrl,
+      },
+    }));
   }
 
   async createContent(data: InsertContent): Promise<Content> {

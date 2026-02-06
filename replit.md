@@ -17,6 +17,15 @@ AlphaMarket is a SaaS marketplace platform connecting SEBI-registered Indian adv
 - **Database**: PostgreSQL (Neon) with Drizzle ORM
 - **Auth**: Session-based with scrypt password hashing
 
+## Recent Changes
+- Added Market Outlook page (`/market-outlook`) showing MarketUpdate content from all advisors
+- Added Learn page (`/learn`) showing Learn/research content from all advisors
+- Added public API route `GET /api/content/public/:type` for fetching content by type with advisor info
+- Replaced AlphaMarket logo with custom uploaded logo image
+- Added Market Outlook and Learn navigation links to navbar
+- Integrated SendGrid email notifications on new user registrations
+- Integrated Replit Object Storage for SEBI certificate file uploads
+
 ## Project Structure
 ```
 shared/schema.ts          - Database schema (8 tables), Zod schemas, types
@@ -35,6 +44,8 @@ client/src/pages/strategies-marketplace.tsx - Public strategies browse
 client/src/pages/strategy-detail.tsx - Strategy detail with calls
 client/src/pages/advisors-listing.tsx - Public advisors browse
 client/src/pages/advisor-detail.tsx - Advisor profile detail
+client/src/pages/market-outlook.tsx - Public Market Outlook page
+client/src/pages/learn.tsx - Public Learn/research page
 client/src/pages/dashboard/index.tsx - Advisor dashboard layout with sidebar
 client/src/pages/dashboard/dashboard-home.tsx - Advisor dashboard home
 client/src/pages/dashboard/strategy-management.tsx - CRUD strategies + calls + positions
