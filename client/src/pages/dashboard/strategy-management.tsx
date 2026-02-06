@@ -423,6 +423,47 @@ function StrategyCallsPanel({ strategy }: { strategy: Strategy }) {
     refetchInterval: ["Future", "Option", "CommodityFuture"].includes(strategy.type) ? 5000 : 15000,
   });
 
+  const isFnOStrategy = ["Option", "Future", "Index", "CommodityFuture"].includes(strategy.type);
+  const fnoPositionGroups = isFnOStrategy
+    ? activePositions
+        .filter((p) => p.symbol && p.expiry && p.strikePrice)
+        .reduce<Record<string, { symbol: string; expiry: string; exchange: string }>>((acc, p) => {
+          const exchange = ["SENSEX", "BANKEX"].includes(p.symbol!.toUpperCase()) ? "BSE" : "NSE";
+          const key = `${p.symbol}:${p.expiry}`;
+          if (!acc[key]) acc[key] = { symbol: p.symbol!, expiry: p.expiry!, exchange };
+          return acc;
+        }, {})
+    : {};
+
+  const { data: optionChainData } = useQuery<Record<string, any[]>>({
+    queryKey: ["/api/option-chain-premiums", strategy.id, JSON.stringify(fnoPositionGroups)],
+    queryFn: async () => {
+      const results: Record<string, any[]> = {};
+      const entries = Object.entries(fnoPositionGroups);
+      await Promise.all(
+        entries.map(async ([key, { symbol, expiry, exchange }]) => {
+          try {
+            const res = await fetch(`/api/option-chain?symbol=${encodeURIComponent(symbol)}&exchange=${exchange}&expiry=${encodeURIComponent(expiry)}`);
+            if (res.ok) results[key] = await res.json();
+          } catch {}
+        })
+      );
+      return results;
+    },
+    enabled: isFnOStrategy && Object.keys(fnoPositionGroups).length > 0,
+    refetchInterval: 15000,
+  });
+
+  const getOptionPremiumLTP = (pos: Position): number | null => {
+    if (!pos.symbol || !pos.expiry || !pos.strikePrice || !optionChainData) return null;
+    const key = `${pos.symbol}:${pos.expiry}`;
+    const chain = optionChainData[key];
+    if (!chain) return null;
+    const strike = chain.find((s: any) => String(s.strikePrice) === String(pos.strikePrice));
+    if (!strike) return null;
+    return pos.callPut === "Put" ? (strike.pe?.ltp ?? null) : (strike.ce?.ltp ?? null);
+  };
+
   const hasPositions = (positions?.length || 0) > 0;
   const loading = callsLoading || positionsLoading;
 
@@ -472,6 +513,7 @@ function StrategyCallsPanel({ strategy }: { strategy: Strategy }) {
                   onEdit={() => setEditingPosition(pos)}
                   strategyId={strategy.id}
                   livePrice={pos.symbol ? livePrices?.[pos.symbol] : undefined}
+                  optionPremiumLTP={getOptionPremiumLTP(pos)}
                 />
               ))}
             </div>
@@ -609,16 +651,24 @@ function PositionRow({
   onEdit,
   strategyId,
   livePrice,
+  optionPremiumLTP,
 }: {
   position: Position;
   onEdit?: () => void;
   strategyId: string;
   livePrice?: { ltp: number; change: number; changePercent: number };
+  optionPremiumLTP?: number | null;
 }) {
   const { toast } = useToast();
   const isActive = position.status === "Active";
   const entryPx = Number(position.entryPrice || 0);
-  const pnl = livePrice && entryPx > 0 ? ((livePrice.ltp - entryPx) / entryPx) * 100 : null;
+  const isFnO = position.strikePrice && position.expiry;
+  const effectiveLTP = isFnO && optionPremiumLTP != null ? optionPremiumLTP : (livePrice?.ltp ?? null);
+  const pnl = effectiveLTP != null && entryPx > 0
+    ? (position.buySell === "Sell"
+        ? ((entryPx - effectiveLTP) / entryPx) * 100
+        : ((effectiveLTP - entryPx) / entryPx) * 100)
+    : null;
 
   const closeMutation = useMutation({
     mutationFn: async () => {
@@ -650,13 +700,21 @@ function PositionRow({
           {isActive && (position as any).publishMode === "watchlist" && <Badge variant="secondary">Watchlist</Badge>}
           {isActive && (position as any).publishMode === "live" && <Badge variant="default">Live</Badge>}
           {isActive && !(position as any).publishMode && !position.isPublished && <Badge variant="secondary">Draft</Badge>}
-          {isActive && livePrice && (
+          {isActive && effectiveLTP != null && (
             <span className="flex items-center gap-1 text-xs font-medium" data-testid={`ltp-pos-${position.id}`}>
-              {"\u20B9"}{livePrice.ltp.toFixed(2)}
-              {livePrice.change >= 0 ? (
-                <ArrowUp className="w-3 h-3 text-green-600 dark:text-green-400" />
-              ) : (
-                <ArrowDown className="w-3 h-3 text-red-600 dark:text-red-400" />
+              {"\u20B9"}{effectiveLTP.toFixed(2)}
+              {isFnO && optionPremiumLTP != null ? (
+                pnl !== null && pnl >= 0 ? (
+                  <ArrowUp className="w-3 h-3 text-green-600 dark:text-green-400" />
+                ) : (
+                  <ArrowDown className="w-3 h-3 text-red-600 dark:text-red-400" />
+                )
+              ) : livePrice && (
+                livePrice.change >= 0 ? (
+                  <ArrowUp className="w-3 h-3 text-green-600 dark:text-green-400" />
+                ) : (
+                  <ArrowDown className="w-3 h-3 text-red-600 dark:text-red-400" />
+                )
               )}
             </span>
           )}
@@ -1333,6 +1391,7 @@ function AddPositionSheet({
     enableLeg: false,
     usePercentage: false,
   });
+  const [manualEntry, setManualEntry] = useState(false);
 
   const mutation = useMutation({
     mutationFn: async (data: any) => {
@@ -1471,7 +1530,18 @@ function AddPositionSheet({
             />
           </div>
 
-          {isFnOSegment && form.symbol ? (
+          {isFnOSegment && (
+            <div className="flex items-center gap-2">
+              <Checkbox
+                checked={manualEntry}
+                onCheckedChange={(v) => setManualEntry(!!v)}
+                data-testid="checkbox-manual-entry"
+              />
+              <Label className="text-sm">Manual Entry (type expiry & strike manually)</Label>
+            </div>
+          )}
+
+          {isFnOSegment && form.symbol && !manualEntry ? (
             <>
               <div className="space-y-1.5">
                 <Label>Expiry Date</Label>
@@ -1515,7 +1585,7 @@ function AddPositionSheet({
                         const peLtp = s.pe?.ltp ? `PE: ${"\u20B9"}${s.pe.ltp.toFixed(2)}` : "";
                         return (
                           <SelectItem key={s.strikePrice} value={String(s.strikePrice)}>
-                            {s.strikePrice} {ceLtp ? `(${ceLtp})` : ""} {peLtp ? `(${peLtp})` : ""}
+                            {"\u20B9"}{Number(s.strikePrice).toLocaleString("en-IN", { minimumFractionDigits: 2 })} {ceLtp ? `(${ceLtp})` : ""} {peLtp ? `(${peLtp})` : ""}
                           </SelectItem>
                         );
                       })}
@@ -1540,10 +1610,11 @@ function AddPositionSheet({
           ) : (
             <>
               <div className="space-y-1.5">
-                <Label>Expiry</Label>
+                <Label>Expiry Date</Label>
                 <Input
                   value={form.expiry}
                   onChange={(e) => setForm({ ...form, expiry: e.target.value })}
+                  placeholder="YYYY-MM-DD (e.g. 2026-02-10)"
                   data-testid="input-expiry"
                 />
               </div>
@@ -1554,18 +1625,20 @@ function AddPositionSheet({
                   step="0.01"
                   value={form.strikePrice}
                   onChange={(e) => setForm({ ...form, strikePrice: e.target.value })}
+                  placeholder="e.g. 25650"
                   data-testid="input-strike-price"
                 />
               </div>
             </>
           )}
           <div className="space-y-1.5">
-            <Label>Entry Price</Label>
+            <Label>Entry Price {isFnOSegment && optionLTP !== null && <span className="text-xs font-normal text-muted-foreground ml-1">(Current {form.callPut} Premium: {"\u20B9"}{optionLTP.toFixed(2)})</span>}</Label>
             <Input
               type="number"
               step="0.01"
               value={form.entryPrice}
               onChange={(e) => setForm({ ...form, entryPrice: e.target.value })}
+              placeholder={isFnOSegment && optionLTP !== null ? `Current premium: ${optionLTP.toFixed(2)}` : ""}
               data-testid="input-entry-price"
             />
           </div>

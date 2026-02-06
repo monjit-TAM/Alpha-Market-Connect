@@ -18,6 +18,11 @@ AlphaMarket is a SaaS marketplace platform connecting SEBI-registered Indian adv
 - **Auth**: Session-based with scrypt password hashing
 
 ## Recent Changes
+- Fixed F&O P&L calculation: now uses live option premium (CE/PE LTP) instead of underlying index/stock LTP
+- P&L for Sell positions calculates inversely (entry - LTP) / entry
+- Option chain data fetched per strategy for active F&O positions to resolve live option premiums
+- Added manual entry toggle for expiry date and strike price in Add Position form
+- Live option premium auto-displayed near Entry Price field when symbol + expiry + strike selected
 - Added F&O option chain integration: expiry date dropdown and strike price dropdown populated from Groww API option chain endpoint
 - Live option premium display when selecting a strike price (shows CE/PE LTP)
 - Added F&O publish flow with three modes: Draft (save privately), Watchlist (monitor), Live (active recommendation)
