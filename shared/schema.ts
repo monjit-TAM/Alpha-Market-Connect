@@ -23,6 +23,8 @@ export const users = pgTable("users", {
   sebiRegNumber: text("sebi_reg_number"),
   isRegistered: boolean("is_registered").default(false),
   isApproved: boolean("is_approved").default(false),
+  agreementConsent: boolean("agreement_consent").default(false),
+  agreementConsentDate: timestamp("agreement_consent_date"),
   activeSince: timestamp("active_since"),
   createdAt: timestamp("created_at").defaultNow(),
 });

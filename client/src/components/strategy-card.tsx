@@ -86,7 +86,7 @@ export function StrategyCard({ strategy }: { strategy: StrategyWithMeta }) {
         <div className="border-t pt-3 space-y-2">
           <p className="text-xs font-medium text-muted-foreground">Pricing Plans</p>
           <div className="flex flex-wrap gap-2">
-            <Link href={`/strategies/${strategy.id}`}>
+            <Link href={`/strategies/${strategy.id}/subscribe`}>
               <Button size="sm" data-testid={`button-subscribe-${strategy.id}`}>
                 Subscribe
               </Button>

@@ -5,7 +5,8 @@ import { storage } from "./storage";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
-import { sendRegistrationNotification, sendUserWelcomeEmail, sendPasswordResetEmail } from "./email";
+import { sendRegistrationNotification, sendUserWelcomeEmail, sendPasswordResetEmail, sendAdvisorAgreementEmail } from "./email";
+import type { Plan } from "@shared/schema";
 
 const scryptAsync = promisify(scrypt);
 
@@ -80,11 +81,18 @@ export async function registerRoutes(
   // Auth routes
   app.post("/api/auth/register", async (req, res) => {
     try {
-      const { username, email, password, phone, role, companyName, sebiRegNumber, sebiCertUrl } = req.body;
+      const { username, email, password, phone, role, companyName, sebiRegNumber, sebiCertUrl, agreementConsent } = req.body;
       const existing = await storage.getUserByUsername(username);
       if (existing) return res.status(400).send("Username already taken");
       const existingEmail = await storage.getUserByEmail(email);
       if (existingEmail) return res.status(400).send("Email already registered");
+
+      if (role === "advisor" && !agreementConsent) {
+        return res.status(400).send("Advisor registration requires agreement to both platform agreements");
+      }
+      if (role === "advisor" && !sebiRegNumber) {
+        return res.status(400).send("SEBI Registration Number is required for advisors");
+      }
 
       const hashedPassword = await hashPassword(password);
       const user = await storage.createUser({
@@ -101,6 +109,8 @@ export async function registerRoutes(
         sebiRegNumber: role === "advisor" ? (sebiRegNumber || null) : null,
         isRegistered: role === "advisor",
         isApproved: false,
+        agreementConsent: role === "advisor" ? (agreementConsent || false) : false,
+        agreementConsentDate: role === "advisor" && agreementConsent ? new Date() : null,
         activeSince: new Date(),
       });
 
@@ -124,6 +134,14 @@ export async function registerRoutes(
         role: role || "investor",
         companyName: companyName || undefined,
       }).catch((err) => console.error("Welcome email error:", err));
+
+      if (role === "advisor" && agreementConsent) {
+        sendAdvisorAgreementEmail({
+          email,
+          username,
+          companyName: companyName || undefined,
+        }).catch((err) => console.error("Agreement email error:", err));
+      }
     } catch (err: any) {
       res.status(500).send(err.message);
     }
@@ -304,13 +322,40 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/strategies/:id/plans", async (req, res) => {
+    try {
+      const strategy = await storage.getStrategy(req.params.id);
+      if (!strategy) return res.status(404).send("Strategy not found");
+      const advisorPlans = await storage.getPlans(strategy.advisorId);
+      if (strategy.planIds && strategy.planIds.length > 0) {
+        const filtered = advisorPlans.filter((p: Plan) => strategy.planIds.includes(p.id));
+        return res.json(filtered.length > 0 ? filtered : advisorPlans);
+      }
+      res.json(advisorPlans);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
   // Subscribe to strategy
   app.post("/api/strategies/:id/subscribe", requireAuth, async (req, res) => {
     try {
       const strategy = await storage.getStrategy(req.params.id);
       if (!strategy) return res.status(404).send("Strategy not found");
+      const { planId } = req.body || {};
       const advisorPlans = await storage.getPlans(strategy.advisorId);
-      const plan = advisorPlans[0];
+      const strategyPlanIds = strategy.planIds && strategy.planIds.length > 0 ? strategy.planIds : advisorPlans.map((p: Plan) => p.id);
+      let plan;
+      if (planId) {
+        plan = advisorPlans.find((p: Plan) => p.id === planId);
+        if (plan && !strategyPlanIds.includes(plan.id)) {
+          return res.status(400).send("Selected plan is not available for this strategy");
+        }
+      }
+      if (!plan) {
+        const availablePlans = advisorPlans.filter((p: Plan) => strategyPlanIds.includes(p.id));
+        plan = availablePlans[0] || advisorPlans[0];
+      }
       if (!plan) return res.status(400).send("No plans available");
       const sub = await storage.createSubscription({
         planId: plan.id,

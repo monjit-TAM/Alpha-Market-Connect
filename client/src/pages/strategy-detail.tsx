@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useParams } from "wouter";
+import { useParams, useLocation, Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -7,9 +7,8 @@ import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
 import { TrendingUp, Calendar, BarChart3, Star, Lock, Zap, Shield } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Strategy, Call, User, Plan } from "@shared/schema";
+import type { Strategy, Call, User } from "@shared/schema";
 import { useAuth } from "@/lib/auth";
-import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
 function getRiskColor(risk: string | null | undefined) {
@@ -23,6 +22,7 @@ export default function StrategyDetail() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const { toast } = useToast();
+  const [, navigate] = useLocation();
 
   const { data: strategy, isLoading } = useQuery<Strategy & { advisor?: User }>({
     queryKey: ["/api/strategies", id],
@@ -33,18 +33,13 @@ export default function StrategyDetail() {
     enabled: !!id,
   });
 
-  const handleSubscribe = async () => {
+  const handleSubscribe = () => {
     if (!user) {
       toast({ title: "Please sign in to subscribe", variant: "destructive" });
+      navigate("/login");
       return;
     }
-    try {
-      await apiRequest("POST", `/api/strategies/${id}/subscribe`);
-      toast({ title: "Subscribed successfully" });
-      queryClient.invalidateQueries({ queryKey: ["/api/strategies", id] });
-    } catch (err: any) {
-      toast({ title: "Subscribe failed", description: err.message, variant: "destructive" });
-    }
+    navigate(`/strategies/${id}/subscribe`);
   };
 
   if (isLoading) {

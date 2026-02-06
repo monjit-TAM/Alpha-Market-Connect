@@ -156,6 +156,70 @@ export async function sendUserWelcomeEmail(userData: {
   }
 }
 
+const AGREEMENT_COPY_EMAIL = "digital.alphamarket@gmail.com";
+
+export async function sendAdvisorAgreementEmail(userData: {
+  email: string;
+  username: string;
+  companyName?: string;
+}) {
+  try {
+    const { client, fromEmail } = await getUncachableSendGridClient();
+
+    const advisorName = userData.companyName || userData.username;
+    const consentDate = new Date().toLocaleDateString("en-IN", {
+      day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit"
+    });
+
+    const appUrl = process.env.REPLIT_DEV_DOMAIN
+      ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+      : process.env.REPL_SLUG
+      ? `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`
+      : "https://thealphamarket.com";
+
+    const html = `
+      <div style="max-width: 700px; margin: 0 auto; font-family: Arial, sans-serif;">
+        <h2 style="color: #333;">AlphaMarket - Advisor Agreement Consent Confirmation</h2>
+        <p>Dear ${advisorName},</p>
+        <p>This email confirms that you have read and agreed to the following agreements during your registration as an Advisor on AlphaMarket on <strong>${consentDate}</strong>:</p>
+
+        <div style="margin: 20px 0; padding: 16px; background-color: #f9f9f9; border-left: 4px solid #c53030; border-radius: 4px;">
+          <h3 style="margin: 0 0 8px 0; color: #333;">1. Digital Advisor Participation Agreement & Risk Disclaimer</h3>
+          <p style="margin: 0; font-size: 14px; color: #666;">This agreement governs your participation on AlphaMarket in respect of clients acquired through the platform. It covers scope, compliance responsibilities, AlphaMarket's role, fees & refunds, data protection, indemnity, jurisdiction, and termination provisions.</p>
+          <p style="margin: 8px 0 0 0;"><a href="${appUrl}/agreements/advisor-participation" style="color: #c53030; font-weight: bold;">View Full Agreement</a></p>
+        </div>
+
+        <div style="margin: 20px 0; padding: 16px; background-color: #f9f9f9; border-left: 4px solid #c53030; border-radius: 4px;">
+          <h3 style="margin: 0 0 8px 0; color: #333;">2. Investment Advisor and Research Analyst Services Agreement</h3>
+          <p style="margin: 0; font-size: 14px; color: #666;">This agreement covers your obligations as a SEBI Registered Investment Advisor/Research Analyst on AlphaMarket, including client consent, risk profiling, fee structure, confidentiality, data protection, grievance redressal, and more.</p>
+          <p style="margin: 8px 0 0 0;"><a href="${appUrl}/agreements/ia-ra-services" style="color: #c53030; font-weight: bold;">View Full Agreement</a></p>
+        </div>
+
+        <p style="font-size: 14px;">By completing your registration and checking the consent boxes, you have acknowledged that these agreements are legally binding and enforceable.</p>
+
+        <table style="border-collapse: collapse; width: 100%; max-width: 500px; margin: 16px 0;">
+          <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">Advisor</td><td style="padding: 8px; border: 1px solid #ddd;">${advisorName}</td></tr>
+          <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">Email</td><td style="padding: 8px; border: 1px solid #ddd;">${userData.email}</td></tr>
+          <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">Consent Date</td><td style="padding: 8px; border: 1px solid #ddd;">${consentDate}</td></tr>
+        </table>
+
+        <p style="color: #666; font-size: 12px; margin-top: 24px;">This is an automated confirmation from AlphaMarket by Edhaz Financial Services Private Limited.</p>
+      </div>
+    `;
+
+    await client.send({
+      to: [userData.email, AGREEMENT_COPY_EMAIL],
+      from: fromEmail,
+      subject: `AlphaMarket - Advisor Agreement Consent Confirmation - ${advisorName}`,
+      html,
+    });
+
+    console.log(`Agreement consent email sent to ${userData.email} and ${AGREEMENT_COPY_EMAIL}`);
+  } catch (err) {
+    console.error("Failed to send agreement consent email:", err);
+  }
+}
+
 export async function sendPasswordResetEmail(email: string, resetToken: string, appUrl: string) {
   try {
     const { client, fromEmail } = await getUncachableSendGridClient();

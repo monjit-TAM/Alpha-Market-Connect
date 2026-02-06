@@ -5,8 +5,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/lib/auth";
-import { TrendingUp, Loader2, Shield, Upload, FileCheck, X } from "lucide-react";
+import { TrendingUp, Loader2, Shield, Upload, FileCheck, X, ChevronDown, ChevronUp, FileText } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
 import { useUpload } from "@/hooks/use-upload";
@@ -115,14 +116,20 @@ export function RegisterPage() {
     username: "",
     email: "",
     password: "",
+    confirmPassword: "",
     phone: "",
     role: "investor" as "investor" | "advisor",
     companyName: "",
     sebiRegNumber: "",
     sebiCertUrl: "",
+    agreementConsent: false,
   });
   const [loading, setLoading] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<{ name: string; path: string } | null>(null);
+  const [agreement1Open, setAgreement1Open] = useState(false);
+  const [agreement2Open, setAgreement2Open] = useState(false);
+  const [agreement1Checked, setAgreement1Checked] = useState(false);
+  const [agreement2Checked, setAgreement2Checked] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { register } = useAuth();
   const [, navigate] = useLocation();
@@ -173,13 +180,29 @@ export function RegisterPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (form.password.length < 6) {
+      toast({ title: "Password must be at least 6 characters", variant: "destructive" });
+      return;
+    }
+    if (form.password !== form.confirmPassword) {
+      toast({ title: "Passwords do not match", variant: "destructive" });
+      return;
+    }
     if (form.role === "advisor" && !form.sebiRegNumber) {
       toast({ title: "SEBI Registration Number is required for advisors", variant: "destructive" });
       return;
     }
+    if (form.role === "advisor" && (!agreement1Checked || !agreement2Checked)) {
+      toast({ title: "You must agree to both agreements to register as an advisor", variant: "destructive" });
+      return;
+    }
     setLoading(true);
+    const submitData = {
+      ...form,
+      agreementConsent: form.role === "advisor" ? (agreement1Checked && agreement2Checked) : false,
+    };
     try {
-      await register(form);
+      await register(submitData);
       if (form.role === "advisor") {
         toast({
           title: "Registration successful",
@@ -343,6 +366,117 @@ export function RegisterPage() {
                     </div>
                   )}
                 </div>
+                <div className="space-y-3">
+                  <Label className="text-sm font-medium flex items-center gap-1">
+                    <FileText className="w-3.5 h-3.5" />
+                    Advisor Agreements *
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Please read and agree to both agreements to proceed with registration.
+                  </p>
+
+                  <div className="border rounded-md overflow-hidden">
+                    <button
+                      type="button"
+                      className="w-full flex items-center justify-between gap-2 p-3 text-left text-sm font-medium hover-elevate"
+                      onClick={() => setAgreement1Open(!agreement1Open)}
+                      data-testid="button-toggle-agreement-1"
+                    >
+                      <span>1. Digital Advisor Participation Agreement & Risk Disclaimer</span>
+                      {agreement1Open ? <ChevronUp className="w-4 h-4 flex-shrink-0" /> : <ChevronDown className="w-4 h-4 flex-shrink-0" />}
+                    </button>
+                    {agreement1Open && (
+                      <div className="px-3 pb-3 max-h-60 overflow-y-auto text-xs text-muted-foreground leading-relaxed space-y-2 border-t" data-testid="content-agreement-1">
+                        <p className="pt-2 font-medium text-foreground">AlphaMarket - Digital Advisor Participation Agreement & Risk Disclaimer</p>
+                        <p>Effective Date: Upon acceptance by Advisor during digital onboarding.</p>
+                        <p>By clicking "I Agree" or by proceeding with Advisor registration on AlphaMarket, You ("Advisor") acknowledge that You have read, understood, and agreed to be bound by this Digital Advisor Participation Agreement ("Agreement") with Edhaz Financial Services Private Limited, operating the AlphaMarket platform.</p>
+                        <p className="font-medium text-foreground">1. Scope & Applicability</p>
+                        <p>1.1. This Agreement governs Your participation on AlphaMarket solely in respect of clients acquired through the AlphaMarket platform ("Platform Clients"). 1.2. Nothing in this Agreement applies to clients acquired independently outside the platform. 1.3. By registering on AlphaMarket, You consent that Your relationship with Platform Clients shall also be subject to this Agreement.</p>
+                        <p className="font-medium text-foreground">2. Independent Relationship</p>
+                        <p>2.1. You participate in Your independent professional capacity as a SEBI-registered Research Analyst / Investment Advisor. 2.2. No partnership, agency, employment, or joint venture is created. 2.3. Platform Clients enter into a direct contractual relationship with You. AlphaMarket is not a party to such contracts.</p>
+                        <p className="font-medium text-foreground">3. Compliance Responsibility</p>
+                        <p>3.1. You represent and warrant that: You hold a valid SEBI registration; You comply with all applicable SEBI Regulations; You are solely responsible for the accuracy, independence, and integrity of Your research and advice. 3.2. You shall not use AlphaMarket to: Offer assured or guaranteed returns; Collect funds for investment; Issue misleading advertisements.</p>
+                        <p className="font-medium text-foreground">4. AlphaMarket's Role & Disclaimer</p>
+                        <p>4.1. AlphaMarket functions only as a technology and compliance facilitation platform. 4.2. AlphaMarket does not: Provide investment advice; Validate Your recommendations; Guarantee performance or returns.</p>
+                        <p className="font-medium text-foreground">5. Fees & Refunds</p>
+                        <p>5.1. All fees from Platform Clients must flow through AlphaMarket's payment system. 5.2. Refunds must comply with SEBI rules. 5.3. AlphaMarket may deduct a platform service fee.</p>
+                        <p className="font-medium text-foreground">6. Data Protection & Privacy</p>
+                        <p>6.1. Advisors act as data controllers for Platform Client data. 6.2. Advisors are responsible for compliance with IT Act, 2000 and DPDP Act, 2023. 6.3. Any misuse of Platform Client data by You shall be solely Your liability.</p>
+                        <p className="font-medium text-foreground">7. Indemnity</p>
+                        <p>You agree to indemnify and hold harmless AlphaMarket against any claims, penalties, damages, or liabilities arising from breach of regulations, misrepresentation, negligence, client disputes, or data privacy breaches caused by You.</p>
+                        <p className="font-medium text-foreground">8. Jurisdiction & Dispute Resolution</p>
+                        <p>8.1. This Agreement is governed by Indian law. 8.2. Disputes shall be subject to the exclusive jurisdiction of the courts of Bangalore, Karnataka.</p>
+                        <p className="font-medium text-foreground">9. Termination</p>
+                        <p>9.1. AlphaMarket may suspend or terminate Your participation if Your SEBI registration is cancelled, You violate SEBI rules, or Your conduct harms AlphaMarket's reputation. 9.2. Upon termination, You must immediately cease using AlphaMarket's name, logo, or brand.</p>
+                        <p className="font-medium text-foreground">10. Binding Effect</p>
+                        <p>By clicking "I Agree" or completing registration, You acknowledge this Agreement is legally binding under the Indian Contract Act, 1872 and the Information Technology Act, 2000.</p>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 px-3 py-2 border-t bg-muted/30">
+                      <Checkbox
+                        id="agreement1"
+                        checked={agreement1Checked}
+                        onCheckedChange={(checked) => setAgreement1Checked(checked === true)}
+                        data-testid="checkbox-agreement-1"
+                      />
+                      <label htmlFor="agreement1" className="text-xs cursor-pointer">
+                        I have read and agree to the Digital Advisor Participation Agreement
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="border rounded-md overflow-hidden">
+                    <button
+                      type="button"
+                      className="w-full flex items-center justify-between gap-2 p-3 text-left text-sm font-medium hover-elevate"
+                      onClick={() => setAgreement2Open(!agreement2Open)}
+                      data-testid="button-toggle-agreement-2"
+                    >
+                      <span>2. Investment Advisor & Research Analyst Services Agreement</span>
+                      {agreement2Open ? <ChevronUp className="w-4 h-4 flex-shrink-0" /> : <ChevronDown className="w-4 h-4 flex-shrink-0" />}
+                    </button>
+                    {agreement2Open && (
+                      <div className="px-3 pb-3 max-h-60 overflow-y-auto text-xs text-muted-foreground leading-relaxed space-y-2 border-t" data-testid="content-agreement-2">
+                        <p className="pt-2 font-medium text-foreground">Investment Advisor and Research Analyst Services Agreement</p>
+                        <p>This document is an electronic record in terms of the Information Technology Act, 2000. The online platform www.thealphamarket.com is owned and operated by Edhaz Financial Services Private Limited.</p>
+                        <p className="font-medium text-foreground">Part A: Client Consent</p>
+                        <p>The Client has read and understood the terms and conditions of this Agreement facilitated by Edhaz Financial Services Private Limited through The AlphaMarket. The fee structure and charging mechanism are standardized between the Client and the SEBI Registered Investment Advisor/Research Analyst.</p>
+                        <p className="font-medium text-foreground">Part B: Declaration</p>
+                        <p>The advisory relationship commences after successful payment and completion of eKYC and Risk Profiling. The Advisor will not manage funds or securities on behalf of the Client and will only receive payments to cover the fees owed under this Agreement.</p>
+                        <p className="font-medium text-foreground">Part C: Fees per SEBI Regulations</p>
+                        <p>Clients pay subscription fees for strategies offered by RIAs/RAs. Fees are determined by the Advisor based on subscription duration. Clients may subscribe to multiple strategies from different Advisors simultaneously.</p>
+                        <p className="font-medium text-foreground">2. Appointment of the Investment Advisor</p>
+                        <p>The Client engages with SEBI Registered Investment Advisors and Research Analysts through The AlphaMarket. The advice will be akin to a model portfolio or generic in nature, and execution discretion lies solely with the Client.</p>
+                        <p className="font-medium text-foreground">3. Scope of Services</p>
+                        <p>RIAs and RAs provide advice related to investing in, purchasing, selling, or otherwise dealing in stocks. The final analysis and decision to adopt advice is entirely the Client's responsibility.</p>
+                        <p className="font-medium text-foreground">5. Obligations of the Investment Advisor</p>
+                        <p>The RIA and RA agree to uphold high standards of integrity and fairness, ensure continuous compliance with SEBI eligibility criteria, provide reports to clients, maintain required records, conduct periodic audits, and adhere to the code of conduct under SEBI Regulations.</p>
+                        <p className="font-medium text-foreground">7. Representations and Warranties</p>
+                        <p>All parties have full power and authority to execute this Agreement. The Agreement constitutes legal, valid, and binding obligations enforceable in accordance with its terms.</p>
+                        <p className="font-medium text-foreground">8. Disclaimers</p>
+                        <p>The Investment Advisory Services are intended solely as advisory. AlphaMarket and its RIAs/RAs shall not be liable for any losses due to market fluctuations, asset value changes, or performance of securities.</p>
+                        <p className="font-medium text-foreground">9-24. Additional Provisions</p>
+                        <p>This Agreement covers: Period & Termination, Fees & Billing, Confidentiality, Personal Data, Recording of Communications, Assignment, Amendment, Indemnity, Invalidity, No Waiver, Grievance Settlement (hello@thealphamarket.com), Governing Law (Indian law, Bangalore jurisdiction), Severability, Force Majeure, Entirety, and Relationship.</p>
+                        <p className="font-medium text-foreground">Annexure B: Risk Statements</p>
+                        <p>The Client acknowledges and understands the risks associated with investments in Securities, equity-linked investments, real estate, derivatives trading, and mutual funds. All investments involve risk of adverse market developments. Trading and investing in derivatives carry high levels of risk including potential for substantial losses.</p>
+                        <p className="font-medium text-foreground">Agreement Acceptance</p>
+                        <p>By clicking "Agree" or "Submit", the Client consents to and agrees to abide by all terms of this Investment Advisor and Research Analyst Services Agreement. This Agreement is electronically executed.</p>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 px-3 py-2 border-t bg-muted/30">
+                      <Checkbox
+                        id="agreement2"
+                        checked={agreement2Checked}
+                        onCheckedChange={(checked) => setAgreement2Checked(checked === true)}
+                        data-testid="checkbox-agreement-2"
+                      />
+                      <label htmlFor="agreement2" className="text-xs cursor-pointer">
+                        I have read and agree to the Investment Advisor & Research Analyst Services Agreement
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="rounded-md bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 p-3">
                   <p className="text-xs text-amber-800 dark:text-amber-300">
                     Your advisor account will be reviewed and approved by our admin team before your profile and strategies become visible to investors.
@@ -360,6 +494,20 @@ export function RegisterPage() {
                 required
                 data-testid="input-reg-password"
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="reg-confirm-password">Confirm Password</Label>
+              <Input
+                id="reg-confirm-password"
+                type="password"
+                value={form.confirmPassword}
+                onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
+                required
+                data-testid="input-reg-confirm-password"
+              />
+              {form.confirmPassword && form.password !== form.confirmPassword && (
+                <p className="text-xs text-destructive">Passwords do not match</p>
+              )}
             </div>
             <Button type="submit" className="w-full" disabled={loading || isUploading} data-testid="button-register">
               {loading && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
