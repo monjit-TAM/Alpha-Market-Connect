@@ -18,6 +18,11 @@ AlphaMarket is a SaaS marketplace platform connecting SEBI-registered Indian adv
 - **Auth**: Session-based with scrypt password hashing
 
 ## Recent Changes
+- Completed Groww API integration with proper two-step authentication (API Key + Secret → SHA256 checksum → access token exchange)
+- Access tokens are cached and auto-refresh before daily 6:00 AM IST expiry
+- Live market prices now fully functional: LTP display with change indicators on strategy detail page and advisor dashboard
+- Bulk LTP endpoint uses Groww's efficient batch API (up to 50 symbols per request)
+- Live prices auto-refresh every 15 seconds on frontend for active calls/positions
 - Added comprehensive advisor call management: expandable strategy cards showing active/closed calls & positions with edit target/SL and close actions
 - Added NSE/BSE/MCX symbol autocomplete (165+ symbols) in Add Stock Call and Add Position sheets
 - Added subscription gating on strategy detail page: active recommendations locked behind subscription for non-subscribers

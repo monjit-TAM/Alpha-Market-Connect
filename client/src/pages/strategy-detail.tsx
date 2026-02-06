@@ -5,11 +5,22 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
-import { TrendingUp, Calendar, BarChart3, Star, Lock, Zap, Shield, Eye } from "lucide-react";
+import { TrendingUp, Calendar, BarChart3, Star, Lock, Zap, Shield, Eye, ArrowUp, ArrowDown } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Strategy, Call, User } from "@shared/schema";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
+
+interface LivePrice {
+  symbol: string;
+  exchange: string;
+  ltp: number;
+  change: number;
+  changePercent: number;
+  high: number;
+  low: number;
+}
 
 function getRiskColor(risk: string | null | undefined) {
   if (!risk) return "text-muted-foreground bg-muted";
@@ -47,6 +58,21 @@ export default function StrategyDetail() {
   const isAdvisor = user?.role === "advisor";
   const isAdmin = user?.role === "admin";
   const canViewActiveCalls = isSubscribed || isAdvisor || isAdmin;
+
+  const activeCallSymbols = (calls || [])
+    .filter((c) => c.status === "Active")
+    .map((c) => ({ symbol: c.stockName, strategyType: strategy?.type }));
+
+  const { data: livePrices } = useQuery<Record<string, LivePrice>>({
+    queryKey: ["/api/live-prices", id, "active"],
+    queryFn: async () => {
+      if (!activeCallSymbols.length) return {};
+      const res = await apiRequest("POST", "/api/live-prices/bulk", { symbols: activeCallSymbols });
+      return res.json();
+    },
+    enabled: canViewActiveCalls && activeCallSymbols.length > 0,
+    refetchInterval: 15000,
+  });
 
   const handleSubscribe = () => {
     if (!user) {
@@ -242,23 +268,51 @@ export default function StrategyDetail() {
                     <tr className="border-b text-left">
                       <th className="pb-2 font-medium text-muted-foreground">Stock Name</th>
                       <th className="pb-2 font-medium text-muted-foreground">Buy Price</th>
+                      <th className="pb-2 font-medium text-muted-foreground">LTP</th>
+                      <th className="pb-2 font-medium text-muted-foreground">P&L %</th>
                       <th className="pb-2 font-medium text-muted-foreground">Target</th>
                       <th className="pb-2 font-medium text-muted-foreground">Stop Loss</th>
                       <th className="pb-2 font-medium text-muted-foreground">Date</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {activeCalls.map((call) => (
-                      <tr key={call.id} className="border-b last:border-0" data-testid={`row-call-${call.id}`}>
-                        <td className="py-2 font-medium">{call.stockName}</td>
-                        <td className="py-2">{"\u20B9"}{call.entryPrice || call.buyRangeStart}</td>
-                        <td className="py-2">{call.targetPrice ? `\u20B9${call.targetPrice}` : "--"}</td>
-                        <td className="py-2">{call.stopLoss ? `\u20B9${call.stopLoss}` : "--"}</td>
-                        <td className="py-2 text-xs">
-                          {call.callDate ? new Date(call.callDate).toLocaleDateString("en-IN") : "--"}
-                        </td>
-                      </tr>
-                    ))}
+                    {activeCalls.map((call) => {
+                      const lp = livePrices?.[call.stockName];
+                      const buyPrice = Number(call.entryPrice || call.buyRangeStart || 0);
+                      const pnl = lp && buyPrice > 0 ? ((lp.ltp - buyPrice) / buyPrice) * 100 : null;
+                      return (
+                        <tr key={call.id} className="border-b last:border-0" data-testid={`row-call-${call.id}`}>
+                          <td className="py-2 font-medium">{call.stockName}</td>
+                          <td className="py-2">{"\u20B9"}{call.entryPrice || call.buyRangeStart}</td>
+                          <td className="py-2" data-testid={`ltp-${call.id}`}>
+                            {lp ? (
+                              <span className="flex items-center gap-1">
+                                {"\u20B9"}{lp.ltp.toFixed(2)}
+                                {lp.change >= 0 ? (
+                                  <ArrowUp className="w-3 h-3 text-green-600 dark:text-green-400" />
+                                ) : (
+                                  <ArrowDown className="w-3 h-3 text-red-600 dark:text-red-400" />
+                                )}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">--</span>
+                            )}
+                          </td>
+                          <td className="py-2" data-testid={`pnl-${call.id}`}>
+                            {pnl !== null ? (
+                              <span className={pnl >= 0 ? "text-green-600 dark:text-green-400 font-medium" : "text-red-600 dark:text-red-400 font-medium"}>
+                                {pnl >= 0 ? "+" : ""}{pnl.toFixed(2)}%
+                              </span>
+                            ) : "--"}
+                          </td>
+                          <td className="py-2">{call.targetPrice ? `\u20B9${call.targetPrice}` : "--"}</td>
+                          <td className="py-2">{call.stopLoss ? `\u20B9${call.stopLoss}` : "--"}</td>
+                          <td className="py-2 text-xs">
+                            {call.callDate ? new Date(call.callDate).toLocaleDateString("en-IN") : "--"}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

@@ -9,6 +9,7 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { sendRegistrationNotification, sendUserWelcomeEmail, sendPasswordResetEmail, sendAdvisorAgreementEmail } from "./email";
+import { getLiveQuote, getLivePrices } from "./groww";
 import type { Plan } from "@shared/schema";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -408,6 +409,35 @@ export async function registerRoutes(
       res.json(sub);
     } catch (err: any) {
       res.status(500).send(err.message);
+    }
+  });
+
+  app.get("/api/live-price/:symbol", async (req, res) => {
+    try {
+      const { symbol } = req.params;
+      const strategyType = req.query.strategyType as string | undefined;
+      const quote = await getLiveQuote(symbol, strategyType);
+      if (!quote) return res.status(404).json({ error: "Price not available" });
+      res.json(quote);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/live-prices/bulk", async (req, res) => {
+    try {
+      const { symbols } = req.body;
+      if (!symbols || !Array.isArray(symbols) || symbols.length === 0) {
+        return res.status(400).json({ error: "symbols array required" });
+      }
+      const items = symbols.map((s: any) => ({
+        symbol: typeof s === "string" ? s : s.symbol,
+        strategyType: typeof s === "string" ? undefined : s.strategyType,
+      }));
+      const prices = await getLivePrices(items);
+      res.json(prices);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 

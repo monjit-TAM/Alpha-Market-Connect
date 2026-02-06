@@ -2,6 +2,7 @@ import { storage } from "./storage";
 import { db } from "./db";
 import { calls, positions, strategies } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
+import { getLiveQuote } from "./groww";
 
 function getISTTime(): Date {
   const now = new Date();
@@ -30,13 +31,26 @@ async function autoSquareOffIntraday() {
 
       for (const call of activeCalls) {
         const entryPrice = Number(call.entryPrice || call.buyRangeStart || 0);
+        let sellPrice = entryPrice;
+        let gainPercent = 0;
+
+        try {
+          const liveQuote = await getLiveQuote(call.stockName, strategy.type);
+          if (liveQuote && liveQuote.ltp > 0) {
+            sellPrice = liveQuote.ltp;
+            gainPercent = entryPrice > 0 ? ((sellPrice - entryPrice) / entryPrice) * 100 : 0;
+          }
+        } catch (e) {
+          console.error(`[Scheduler] Could not fetch live price for ${call.stockName}, using entry price`);
+        }
+
         await storage.updateCall(call.id, {
           status: "Closed",
-          sellPrice: String(entryPrice),
-          gainPercent: "0",
+          sellPrice: String(sellPrice.toFixed(2)),
+          gainPercent: String(gainPercent.toFixed(2)),
           exitDate: new Date(),
         });
-        console.log(`[Scheduler] Auto-squared off intraday call ${call.id} (${call.stockName})`);
+        console.log(`[Scheduler] Auto-squared off intraday call ${call.id} (${call.stockName}) at ${"\u20B9"}${sellPrice.toFixed(2)}, P&L: ${gainPercent.toFixed(2)}%`);
       }
 
       const activePositions = await db

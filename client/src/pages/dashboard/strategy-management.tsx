@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, MoreVertical, Loader2, Pencil, ChevronDown, ChevronRight, X, Search } from "lucide-react";
+import { Plus, MoreVertical, Loader2, Pencil, ChevronDown, ChevronRight, X, Search, ArrowUp, ArrowDown } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -407,6 +407,22 @@ function StrategyCallsPanel({ strategy }: { strategy: Strategy }) {
   const activePositions = positions?.filter((p) => p.status === "Active") || [];
   const closedPositions = positions?.filter((p) => p.status === "Closed") || [];
 
+  const activeSymbols = [
+    ...activeCalls.map((c) => ({ symbol: c.stockName, strategyType: strategy.type })),
+    ...activePositions.filter((p) => p.symbol).map((p) => ({ symbol: p.symbol!, strategyType: strategy.type })),
+  ];
+
+  const { data: livePrices } = useQuery<Record<string, { ltp: number; change: number; changePercent: number }>>({
+    queryKey: ["/api/live-prices", strategy.id, "dashboard"],
+    queryFn: async () => {
+      if (!activeSymbols.length) return {};
+      const res = await apiRequest("POST", "/api/live-prices/bulk", { symbols: activeSymbols });
+      return res.json();
+    },
+    enabled: activeSymbols.length > 0,
+    refetchInterval: 15000,
+  });
+
   const hasPositions = (positions?.length || 0) > 0;
   const loading = callsLoading || positionsLoading;
 
@@ -446,6 +462,7 @@ function StrategyCallsPanel({ strategy }: { strategy: Strategy }) {
                   call={call}
                   onEdit={() => setEditingCall(call)}
                   onClose={() => setClosingCall(call)}
+                  livePrice={livePrices?.[call.stockName]}
                 />
               ))}
               {activePositions.map((pos) => (
@@ -454,6 +471,7 @@ function StrategyCallsPanel({ strategy }: { strategy: Strategy }) {
                   position={pos}
                   onEdit={() => setEditingPosition(pos)}
                   strategyId={strategy.id}
+                  livePrice={pos.symbol ? livePrices?.[pos.symbol] : undefined}
                 />
               ))}
             </div>
@@ -501,12 +519,17 @@ function CallRow({
   call,
   onEdit,
   onClose,
+  livePrice,
 }: {
   call: Call;
   onEdit?: () => void;
   onClose?: () => void;
+  livePrice?: { ltp: number; change: number; changePercent: number };
 }) {
   const isActive = call.status === "Active";
+  const buyPrice = Number(call.entryPrice || call.buyRangeStart || 0);
+  const pnl = livePrice && buyPrice > 0 ? ((livePrice.ltp - buyPrice) / buyPrice) * 100 : null;
+
   return (
     <div
       className="flex items-center gap-3 p-3 rounded-md border text-sm flex-wrap"
@@ -520,6 +543,24 @@ function CallRow({
           </Badge>
           {!isActive && (
             <Badge variant="secondary">Closed</Badge>
+          )}
+          {isActive && livePrice && (
+            <span className="flex items-center gap-1 text-xs font-medium" data-testid={`ltp-call-${call.id}`}>
+              {"\u20B9"}{livePrice.ltp.toFixed(2)}
+              {livePrice.change >= 0 ? (
+                <ArrowUp className="w-3 h-3 text-green-600 dark:text-green-400" />
+              ) : (
+                <ArrowDown className="w-3 h-3 text-red-600 dark:text-red-400" />
+              )}
+              <span className={livePrice.changePercent >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
+                ({livePrice.changePercent >= 0 ? "+" : ""}{livePrice.changePercent.toFixed(2)}%)
+              </span>
+            </span>
+          )}
+          {isActive && pnl !== null && (
+            <Badge variant="secondary" className={pnl >= 0 ? "text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950/30" : "text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/30"}>
+              P&L: {pnl >= 0 ? "+" : ""}{pnl.toFixed(2)}%
+            </Badge>
           )}
         </div>
         <div className="text-xs text-muted-foreground mt-1 flex items-center gap-3 flex-wrap">
@@ -557,13 +598,17 @@ function PositionRow({
   position,
   onEdit,
   strategyId,
+  livePrice,
 }: {
   position: Position;
   onEdit?: () => void;
   strategyId: string;
+  livePrice?: { ltp: number; change: number; changePercent: number };
 }) {
   const { toast } = useToast();
   const isActive = position.status === "Active";
+  const entryPx = Number(position.entryPrice || 0);
+  const pnl = livePrice && entryPx > 0 ? ((livePrice.ltp - entryPx) / entryPx) * 100 : null;
 
   const closeMutation = useMutation({
     mutationFn: async () => {
@@ -592,6 +637,21 @@ function PositionRow({
             {position.buySell}
           </Badge>
           {!isActive && <Badge variant="secondary">Closed</Badge>}
+          {isActive && livePrice && (
+            <span className="flex items-center gap-1 text-xs font-medium" data-testid={`ltp-pos-${position.id}`}>
+              {"\u20B9"}{livePrice.ltp.toFixed(2)}
+              {livePrice.change >= 0 ? (
+                <ArrowUp className="w-3 h-3 text-green-600 dark:text-green-400" />
+              ) : (
+                <ArrowDown className="w-3 h-3 text-red-600 dark:text-red-400" />
+              )}
+            </span>
+          )}
+          {isActive && pnl !== null && (
+            <Badge variant="secondary" className={pnl >= 0 ? "text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950/30" : "text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/30"}>
+              P&L: {pnl >= 0 ? "+" : ""}{pnl.toFixed(2)}%
+            </Badge>
+          )}
         </div>
         <div className="text-xs text-muted-foreground mt-1 flex items-center gap-3 flex-wrap">
           {position.strikePrice && <span>Strike: {Number(position.strikePrice).toFixed(2)}</span>}
