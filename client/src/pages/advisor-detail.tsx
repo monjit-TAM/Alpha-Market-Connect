@@ -1,0 +1,192 @@
+import { useQuery } from "@tanstack/react-query";
+import { useParams } from "wouter";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Navbar } from "@/components/navbar";
+import { Calendar, TrendingUp, BarChart3, Shield, ExternalLink } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Link } from "wouter";
+import type { User, Strategy, Content as ContentType, Score } from "@shared/schema";
+
+export default function AdvisorDetail() {
+  const { id } = useParams<{ id: string }>();
+
+  const { data: advisor, isLoading } = useQuery<User & { strategies?: Strategy[]; contents?: ContentType[]; scores?: Score[] }>({
+    queryKey: ["/api/advisors", id],
+  });
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navbar />
+        <div className="max-w-5xl mx-auto px-4 md:px-6 py-6 space-y-4">
+          <Skeleton className="h-8 w-60" />
+          <Skeleton className="h-40 w-full" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!advisor) return null;
+
+  const publishedStrategies = (advisor.strategies || []).filter((s) => s.status === "Published");
+
+  return (
+    <div className="min-h-screen bg-background">
+      <Navbar />
+      <div className="max-w-5xl mx-auto px-4 md:px-6 py-6 space-y-6">
+        <div className="flex flex-col md:flex-row gap-4 items-start">
+          <Avatar className="w-16 h-16">
+            {advisor.logoUrl && <AvatarImage src={advisor.logoUrl} />}
+            <AvatarFallback className="bg-primary/10 text-primary font-bold text-lg">
+              {(advisor.companyName || advisor.username).slice(0, 2).toUpperCase()}
+            </AvatarFallback>
+          </Avatar>
+          <div className="flex-1 space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-2xl font-bold">{advisor.companyName || advisor.username}</h1>
+              <Badge variant="secondary">
+                <Shield className="w-3 h-3 mr-1" /> Registered
+              </Badge>
+            </div>
+            {advisor.sebiRegNumber && (
+              <p className="text-sm text-muted-foreground">Registration: {advisor.sebiRegNumber}</p>
+            )}
+          </div>
+        </div>
+
+        <div className="grid md:grid-cols-5 gap-6">
+          <div className="md:col-span-3 space-y-6">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Details</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-line">
+                  {advisor.overview || "No overview provided."}
+                </p>
+                <div className="flex items-center gap-6 mt-4 text-sm">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center">
+                      <Calendar className="w-4 h-4 text-primary" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Live Since</p>
+                      <p className="font-medium text-xs">
+                        {advisor.activeSince
+                          ? new Date(advisor.activeSince).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+                          : "N/A"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-md bg-accent/10 flex items-center justify-center">
+                      <TrendingUp className="w-4 h-4 text-accent" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Stocks in Buy Zone</p>
+                      <p className="font-medium">0</p>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Live Strategies</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {publishedStrategies.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">No live strategies yet</p>
+                ) : (
+                  publishedStrategies.map((s) => (
+                    <div key={s.id} className="flex items-center justify-between gap-3 p-3 rounded-md bg-muted/50">
+                      <div className="min-w-0">
+                        <p className="font-medium text-sm truncate">{s.name}</p>
+                        <p className="text-xs text-muted-foreground line-clamp-1">{s.description}</p>
+                      </div>
+                      <Link href={`/strategies/${s.id}`}>
+                        <Button variant="outline" size="sm" data-testid={`button-strategy-${s.id}`}>
+                          <ExternalLink className="w-3 h-3 mr-1" /> Subscribe
+                        </Button>
+                      </Link>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="md:col-span-2 space-y-6">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Adviser Details</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 gap-2 text-sm">
+                  <div className="p-2 rounded-md bg-muted/50 text-center space-y-1">
+                    <p className="text-xs text-muted-foreground">Theme</p>
+                    <p className="font-medium">{advisor.themes?.join(", ") || "Equity"}</p>
+                  </div>
+                  <div className="p-2 rounded-md bg-muted/50 text-center space-y-1">
+                    <p className="text-xs text-muted-foreground">Registration Number</p>
+                    <p className="font-medium">{advisor.sebiRegNumber || "N/A"}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Content Portfolio</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {(advisor.contents || []).length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-2">No content published</p>
+                ) : (
+                  (advisor.contents || []).slice(0, 5).map((c) => (
+                    <div key={c.id} className="flex items-center gap-2 text-sm p-2 rounded-md bg-muted/50">
+                      <BarChart3 className="w-3 h-3 text-primary flex-shrink-0" />
+                      <span className="truncate">{c.title}</span>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+
+            {advisor.scores && advisor.scores.length > 0 && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Customer Complaints as per SCORES</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="p-2 rounded-md bg-primary/10 text-center space-y-1">
+                      <p className="text-muted-foreground">At beginning</p>
+                      <p className="font-semibold">{advisor.scores[0].beginningOfMonth || 0}</p>
+                    </div>
+                    <div className="p-2 rounded-md bg-primary/10 text-center space-y-1">
+                      <p className="text-muted-foreground">Received</p>
+                      <p className="font-semibold">{advisor.scores[0].receivedDuring || 0}</p>
+                    </div>
+                    <div className="p-2 rounded-md bg-accent/10 text-center space-y-1">
+                      <p className="text-muted-foreground">Resolved</p>
+                      <p className="font-semibold">{advisor.scores[0].resolvedDuring || 0}</p>
+                    </div>
+                    <div className="p-2 rounded-md bg-primary/10 text-center space-y-1">
+                      <p className="text-muted-foreground">Pending</p>
+                      <p className="font-semibold">{advisor.scores[0].pendingAtEnd || 0}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
