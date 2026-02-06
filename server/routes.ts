@@ -292,8 +292,11 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/strategies/:id", requireAuth, async (req, res) => {
+  app.patch("/api/strategies/:id", requireAdvisor, async (req, res) => {
     try {
+      const existing = await storage.getStrategy(req.params.id);
+      if (!existing) return res.status(404).send("Strategy not found");
+      if (existing.advisorId !== req.session.userId) return res.status(403).send("Not authorized");
       const s = await storage.updateStrategy(req.params.id, req.body);
       res.json(s);
     } catch (err: any) {
@@ -301,8 +304,11 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/strategies/:id", requireAuth, async (req, res) => {
+  app.delete("/api/strategies/:id", requireAdvisor, async (req, res) => {
     try {
+      const existing = await storage.getStrategy(req.params.id);
+      if (!existing) return res.status(404).send("Strategy not found");
+      if (existing.advisorId !== req.session.userId) return res.status(403).send("Not authorized");
       await storage.deleteStrategy(req.params.id);
       res.json({ ok: true });
     } catch (err: any) {

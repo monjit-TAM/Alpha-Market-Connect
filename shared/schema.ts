@@ -43,6 +43,7 @@ export const strategies = pgTable("strategies", {
   benchmark: text("benchmark"),
   minimumInvestment: numeric("minimum_investment"),
   cagr: numeric("cagr"),
+  planIds: text("plan_ids").array(),
   totalRecommendations: integer("total_recommendations").default(0),
   stocksInBuyZone: integer("stocks_in_buy_zone").default(0),
   createdAt: timestamp("created_at").defaultNow(),

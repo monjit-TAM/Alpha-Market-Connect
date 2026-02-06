@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -8,26 +8,56 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, MoreVertical, Loader2 } from "lucide-react";
+import { Plus, MoreVertical, Loader2, Pencil } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
-import type { Strategy, Call } from "@shared/schema";
+import type { Strategy, Plan } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
+
+function getCallActionsForType(type: string): { label: string; mode: "stock" | "position" }[] {
+  switch (type) {
+    case "Equity":
+      return [{ label: "Add Stock Call", mode: "stock" }];
+    case "Option":
+      return [{ label: "Add Option Call", mode: "position" }];
+    case "Future":
+      return [{ label: "Add Future Call", mode: "position" }];
+    case "Commodity":
+      return [{ label: "Add Commodity Call", mode: "stock" }];
+    case "CommodityFuture":
+      return [{ label: "Add Commodity Future Call", mode: "position" }];
+    case "Basket":
+      return [
+        { label: "Add Stock Call", mode: "stock" },
+        { label: "Add Position (F&O)", mode: "position" },
+      ];
+    default:
+      return [
+        { label: "Add Stock Call", mode: "stock" },
+        { label: "Add Position (F&O)", mode: "position" },
+      ];
+  }
+}
 
 export default function StrategyManagement() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [showNewStrategy, setShowNewStrategy] = useState(false);
+  const [showEditStrategy, setShowEditStrategy] = useState(false);
   const [showAddStock, setShowAddStock] = useState(false);
   const [showAddPosition, setShowAddPosition] = useState(false);
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
 
   const { data: strategies, isLoading } = useQuery<Strategy[]>({
     queryKey: ["/api/advisor/strategies"],
+  });
+
+  const { data: plans } = useQuery<Plan[]>({
+    queryKey: ["/api/advisor/plans"],
   });
 
   const createMutation = useMutation({
@@ -39,6 +69,22 @@ export default function StrategyManagement() {
       queryClient.invalidateQueries({ queryKey: ["/api/advisor/strategies"] });
       setShowNewStrategy(false);
       toast({ title: "Strategy created" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, ...data }: any) => {
+      const res = await apiRequest("PATCH", `/api/strategies/${id}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/advisor/strategies"] });
+      setShowEditStrategy(false);
+      setSelectedStrategy(null);
+      toast({ title: "Strategy updated" });
     },
     onError: (err: any) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -98,6 +144,7 @@ export default function StrategyManagement() {
                   <tr className="border-b bg-muted/30">
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground">Strategy Name</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground">Type</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Horizon</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground">Description</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground">Created</th>
@@ -105,80 +152,95 @@ export default function StrategyManagement() {
                   </tr>
                 </thead>
                 <tbody>
-                  {strategies.map((s) => (
-                    <tr key={s.id} className="border-b last:border-0 hover-elevate" data-testid={`row-strategy-${s.id}`}>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <button
-                            className="text-primary"
-                            onClick={() => {
-                              setSelectedStrategy(s);
-                              setShowAddStock(true);
-                            }}
-                            data-testid={`button-add-stock-${s.id}`}
-                          >
-                            <Plus className="w-4 h-4" />
-                          </button>
-                          <span className="font-medium">{s.name}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">{s.type}</td>
-                      <td className="px-4 py-3 max-w-[200px] truncate text-muted-foreground">
-                        {s.description || "--"}
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge variant={s.status === "Published" ? "default" : "secondary"}>
-                          {s.status}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3 text-xs text-muted-foreground">
-                        {s.createdAt ? new Date(s.createdAt).toLocaleDateString("en-IN") : "--"}
-                      </td>
-                      <td className="px-4 py-3">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" data-testid={`button-actions-${s.id}`}>
-                              <MoreVertical className="w-4 h-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem
+                  {strategies.map((s) => {
+                    const callActions = getCallActionsForType(s.type);
+                    return (
+                      <tr key={s.id} className="border-b last:border-0 hover-elevate" data-testid={`row-strategy-${s.id}`}>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <button
+                              className="text-primary"
                               onClick={() => {
                                 setSelectedStrategy(s);
-                                setShowAddStock(true);
+                                const firstAction = callActions[0];
+                                if (firstAction.mode === "stock") setShowAddStock(true);
+                                else setShowAddPosition(true);
                               }}
+                              data-testid={`button-add-stock-${s.id}`}
                             >
-                              Add Stock Call
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => {
-                                setSelectedStrategy(s);
-                                setShowAddPosition(true);
-                              }}
-                            >
-                              Add Position (F&O)
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() =>
-                                toggleStatusMutation.mutate({
-                                  id: s.id,
-                                  status: s.status === "Published" ? "Draft" : "Published",
-                                })
-                              }
-                            >
-                              {s.status === "Published" ? "Unpublish" : "Publish"}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="text-destructive"
-                              onClick={() => deleteMutation.mutate(s.id)}
-                            >
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </td>
-                    </tr>
-                  ))}
+                              <Plus className="w-4 h-4" />
+                            </button>
+                            <span className="font-medium">{s.name}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">{s.type}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{s.horizon || "--"}</td>
+                        <td className="px-4 py-3 max-w-[200px] truncate text-muted-foreground">
+                          {s.description || "--"}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant={s.status === "Published" ? "default" : "secondary"}>
+                            {s.status}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-muted-foreground">
+                          {s.createdAt ? new Date(s.createdAt).toLocaleDateString("en-IN") : "--"}
+                        </td>
+                        <td className="px-4 py-3">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" data-testid={`button-actions-${s.id}`}>
+                                <MoreVertical className="w-4 h-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setSelectedStrategy(s);
+                                  setShowEditStrategy(true);
+                                }}
+                                data-testid={`button-edit-strategy-${s.id}`}
+                              >
+                                <Pencil className="w-4 h-4 mr-2" />
+                                Edit Strategy
+                              </DropdownMenuItem>
+                              {callActions.map((action) => (
+                                <DropdownMenuItem
+                                  key={action.label}
+                                  onClick={() => {
+                                    setSelectedStrategy(s);
+                                    if (action.mode === "stock") setShowAddStock(true);
+                                    else setShowAddPosition(true);
+                                  }}
+                                  data-testid={`button-action-${action.label.toLowerCase().replace(/\s+/g, "-")}-${s.id}`}
+                                >
+                                  {action.label}
+                                </DropdownMenuItem>
+                              ))}
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  toggleStatusMutation.mutate({
+                                    id: s.id,
+                                    status: s.status === "Published" ? "Draft" : "Published",
+                                  })
+                                }
+                                data-testid={`button-toggle-status-${s.id}`}
+                              >
+                                {s.status === "Published" ? "Unpublish" : "Publish"}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="text-destructive"
+                                onClick={() => deleteMutation.mutate(s.id)}
+                                data-testid={`button-delete-strategy-${s.id}`}
+                              >
+                                Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -186,11 +248,26 @@ export default function StrategyManagement() {
         </Card>
       )}
 
-      <NewStrategyDialog
+      <StrategyDialog
         open={showNewStrategy}
         onOpenChange={setShowNewStrategy}
         onSubmit={(data) => createMutation.mutate({ ...data, advisorId: user?.id })}
         loading={createMutation.isPending}
+        plans={plans || []}
+        mode="create"
+      />
+
+      <StrategyDialog
+        open={showEditStrategy}
+        onOpenChange={(v) => {
+          setShowEditStrategy(v);
+          if (!v) setSelectedStrategy(null);
+        }}
+        onSubmit={(data) => updateMutation.mutate({ ...data, id: selectedStrategy?.id })}
+        loading={updateMutation.isPending}
+        plans={plans || []}
+        mode="edit"
+        strategy={selectedStrategy}
       />
 
       <AddStockSheet
@@ -208,16 +285,22 @@ export default function StrategyManagement() {
   );
 }
 
-function NewStrategyDialog({
+function StrategyDialog({
   open,
   onOpenChange,
   onSubmit,
   loading,
+  plans,
+  mode,
+  strategy,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onSubmit: (data: any) => void;
   loading: boolean;
+  plans: Plan[];
+  mode: "create" | "edit";
+  strategy?: Strategy | null;
 }) {
   const [form, setForm] = useState({
     name: "",
@@ -228,18 +311,56 @@ function NewStrategyDialog({
     horizon: "",
     volatility: "",
     benchmark: "",
+    planIds: [] as string[],
   });
+
+  useEffect(() => {
+    if (mode === "edit" && strategy && open) {
+      setForm({
+        name: strategy.name || "",
+        type: strategy.type || "Equity",
+        description: strategy.description || "",
+        theme: strategy.theme || [],
+        managementStyle: strategy.managementStyle || "",
+        horizon: strategy.horizon || "",
+        volatility: strategy.volatility || "",
+        benchmark: strategy.benchmark || "",
+        planIds: strategy.planIds || [],
+      });
+    } else if (mode === "create" && open) {
+      setForm({
+        name: "",
+        type: "Equity",
+        description: "",
+        theme: [],
+        managementStyle: "",
+        horizon: "",
+        volatility: "",
+        benchmark: "",
+        planIds: [],
+      });
+    }
+  }, [mode, strategy, open]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSubmit(form);
   };
 
+  const togglePlan = (planId: string) => {
+    setForm((prev) => ({
+      ...prev,
+      planIds: prev.planIds.includes(planId)
+        ? prev.planIds.filter((id) => id !== planId)
+        : [...prev.planIds, planId],
+    }));
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Create New Strategy</DialogTitle>
+          <DialogTitle>{mode === "edit" ? "Edit Strategy" : "Create New Strategy"}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1.5">
@@ -263,6 +384,7 @@ function NewStrategyDialog({
                 <SelectItem value="Basket">Basket</SelectItem>
                 <SelectItem value="Future">Future</SelectItem>
                 <SelectItem value="Commodity">Commodity</SelectItem>
+                <SelectItem value="CommodityFuture">Commodity Future</SelectItem>
                 <SelectItem value="Option">Option</SelectItem>
               </SelectContent>
             </Select>
@@ -323,9 +445,36 @@ function NewStrategyDialog({
             />
           </div>
 
+          {plans.length > 0 && (
+            <div className="space-y-2">
+              <Label>Map Pricing Plans</Label>
+              <p className="text-xs text-muted-foreground">Select which plans apply to this strategy</p>
+              <div className="space-y-2 rounded-md border p-3">
+                {plans.map((plan) => (
+                  <div key={plan.id} className="flex items-center gap-2" data-testid={`plan-option-${plan.id}`}>
+                    <Checkbox
+                      checked={form.planIds.includes(plan.id)}
+                      onCheckedChange={() => togglePlan(plan.id)}
+                      data-testid={`checkbox-plan-${plan.id}`}
+                    />
+                    <Label className="text-sm font-normal cursor-pointer flex items-center gap-2 flex-wrap">
+                      <span>{plan.name}</span>
+                      <Badge variant="secondary" className="text-xs">
+                        {plan.code}
+                      </Badge>
+                      <span className="text-muted-foreground">
+                        {"\u20B9"}{Number(plan.amount).toLocaleString("en-IN")}
+                      </span>
+                    </Label>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <Button type="submit" className="w-full" disabled={loading} data-testid="button-save-strategy">
             {loading && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
-            Save & Next
+            {mode === "edit" ? "Update Strategy" : "Save & Next"}
           </Button>
         </form>
       </DialogContent>

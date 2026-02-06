@@ -18,6 +18,10 @@ AlphaMarket is a SaaS marketplace platform connecting SEBI-registered Indian adv
 - **Auth**: Session-based with scrypt password hashing
 
 ## Recent Changes
+- Enhanced strategy management: Horizon column in table, Edit Strategy in actions dropdown, plan mapping with checkboxes
+- Strategy actions dropdown now filters call types by strategy type (Equity→Stock Call, Option→Option Call, etc.)
+- Added `planIds` array column to strategies table for flexible pricing plan mapping
+- Secured PATCH/DELETE strategy routes with advisor ownership verification
 - Added Market Outlook page (`/market-outlook`) showing MarketUpdate content from all advisors
 - Added Learn page (`/learn`) showing Learn/research content from all advisors
 - Added public API route `GET /api/content/public/:type` for fetching content by type with advisor info
