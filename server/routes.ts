@@ -135,6 +135,37 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/live-call-counts", async (_req, res) => {
+    try {
+      const strats = await storage.getPublishedStrategies();
+      const counts: Record<string, number> = {
+        "Intraday": 0,
+        "F&O": 0,
+        "Swing": 0,
+        "Positional": 0,
+        "Multi Leg": 0,
+        "Commodities": 0,
+        "Basket": 0,
+      };
+      for (const s of strats) {
+        const activeCalls = await storage.getCalls(s.id);
+        const activeCount = activeCalls.filter((c) => c.status === "Active").length;
+        const horizon = (s.horizon || "").toLowerCase();
+        const type = s.type;
+
+        if (horizon.includes("intraday")) counts["Intraday"] += activeCount;
+        if (type === "Future" || type === "Option") counts["F&O"] += activeCount;
+        if (horizon.includes("swing")) counts["Swing"] += activeCount;
+        if (horizon.includes("positional") || horizon.includes("long term")) counts["Positional"] += activeCount;
+        if (type === "Commodity" || type === "CommodityFuture") counts["Commodities"] += activeCount;
+        if (type === "Basket") counts["Basket"] += activeCount;
+      }
+      res.json(counts);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
   // Strategy public routes
   app.get("/api/strategies/public", async (_req, res) => {
     try {

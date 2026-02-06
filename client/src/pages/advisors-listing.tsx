@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Navbar } from "@/components/navbar";
+import { Footer } from "@/components/footer";
 import { Link } from "wouter";
 import { Search, Filter, CheckCircle, Shield } from "lucide-react";
 import { useState } from "react";
@@ -14,30 +15,47 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 export default function AdvisorsListing() {
   const [search, setSearch] = useState("");
+  const [themeFilter, setThemeFilter] = useState("");
   const [sortBy, setSortBy] = useState("newest");
 
   const { data: advisors, isLoading } = useQuery<(User & { liveStrategies?: number })[]>({
     queryKey: ["/api/advisors"],
   });
 
-  const filtered = (advisors || []).filter(
-    (a) => !search || (a.companyName || a.username).toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = (advisors || []).filter((a) => {
+    if (search && !(a.companyName || a.username).toLowerCase().includes(search.toLowerCase())) return false;
+    if (themeFilter && themeFilter !== "all" && !(a.themes || []).some((t) => t.toLowerCase().includes(themeFilter.toLowerCase()))) return false;
+    return true;
+  });
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background flex flex-col">
       <Navbar />
-      <div className="max-w-7xl mx-auto px-4 md:px-6 py-6">
+      <div className="flex-1 max-w-7xl mx-auto px-4 md:px-6 py-6 w-full">
         <div className="flex flex-col md:flex-row gap-6">
-          <aside className="w-full md:w-64 space-y-4 flex-shrink-0">
+          <aside className="w-full md:w-56 space-y-4 flex-shrink-0">
             <h3 className="font-semibold text-sm flex items-center gap-1">
               <Filter className="w-4 h-4" /> Filters
             </h3>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Theme</label>
+              <Select value={themeFilter} onValueChange={setThemeFilter}>
+                <SelectTrigger className="h-8 text-xs" data-testid="filter-theme-advisors">
+                  <SelectValue placeholder="All Themes" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Themes</SelectItem>
+                  {["Equity", "F&O", "Growth", "Value", "SwingTrade", "Basket", "Commodity", "Shorting"].map((t) => (
+                    <SelectItem key={t} value={t}>{t}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </aside>
 
           <div className="flex-1 space-y-4">
             <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-              <div className="relative flex-1 w-full">
+              <div className="relative flex-1 w-full max-w-md">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
                   placeholder="Search advisors..."
@@ -48,7 +66,7 @@ export default function AdvisorsListing() {
                 />
               </div>
               <Select value={sortBy} onValueChange={setSortBy}>
-                <SelectTrigger className="w-40" data-testid="select-sort-advisors">
+                <SelectTrigger className="w-36" data-testid="select-sort-advisors">
                   <SelectValue placeholder="Sort By" />
                 </SelectTrigger>
                 <SelectContent>
@@ -89,6 +107,7 @@ export default function AdvisorsListing() {
           </div>
         </div>
       </div>
+      <Footer />
     </div>
   );
 }
@@ -106,31 +125,24 @@ function AdvisorCard({ advisor }: { advisor: User & { liveStrategies?: number } 
               </AvatarFallback>
             </Avatar>
             <div>
-              <h3 className="font-semibold">{advisor.companyName || advisor.username}</h3>
-              {advisor.sebiRegNumber && (
-                <p className="text-xs text-muted-foreground">SEBI: {advisor.sebiRegNumber}</p>
-              )}
+              <h3 className="font-semibold text-sm">{advisor.companyName || advisor.username}</h3>
+              <p className="text-xs text-muted-foreground font-medium">Registration Number</p>
+              <p className="text-xs text-muted-foreground">{advisor.sebiRegNumber || "N/A"}</p>
             </div>
           </div>
-          <Badge variant="outline" className="text-xs flex-shrink-0">
-            <Shield className="w-3 h-3 mr-1" />
-            Registered
-          </Badge>
         </div>
 
-        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
           <div>
             <span className="text-muted-foreground">Theme</span>
-            <p className="font-medium">{advisor.themes?.join(", ") || "Equity"}</p>
+            <p className="font-medium">{advisor.themes?.join(" | ") || "Equity"}</p>
           </div>
           <div>
             <span className="text-muted-foreground">Active Since</span>
-            <p className="font-medium text-xs">
+            <p className="font-medium">
               {advisor.activeSince
                 ? new Date(advisor.activeSince).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
-                : advisor.createdAt
-                  ? new Date(advisor.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
-                  : "N/A"}
+                : "N/A"}
             </p>
           </div>
           <div>
@@ -148,7 +160,7 @@ function AdvisorCard({ advisor }: { advisor: User & { liveStrategies?: number } 
         {advisor.overview && (
           <div className="space-y-1">
             <p className="text-xs font-medium text-muted-foreground">Advisor Overview</p>
-            <p className="text-sm text-muted-foreground line-clamp-3">{advisor.overview}</p>
+            <p className="text-xs text-muted-foreground/80 line-clamp-3 leading-relaxed">{advisor.overview}</p>
           </div>
         )}
 

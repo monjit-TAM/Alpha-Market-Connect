@@ -98,7 +98,10 @@ export class DatabaseStorage implements IStorage {
     const result = [];
     for (const s of strats) {
       const [advisor] = await db.select().from(users).where(eq(users.id, s.advisorId));
-      result.push({ ...s, advisor });
+      const stratCalls = await db.select().from(calls).where(eq(calls.strategyId, s.id));
+      const liveCalls = stratCalls.filter((c) => c.status === "Active").length;
+      const { password: _, ...safeAdvisor } = advisor || {} as any;
+      result.push({ ...s, advisor: safeAdvisor, liveCalls });
     }
     return result;
   }

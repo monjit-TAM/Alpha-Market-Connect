@@ -4,7 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Navbar } from "@/components/navbar";
-import { Calendar, TrendingUp, BarChart3, Shield, ExternalLink } from "lucide-react";
+import { Footer } from "@/components/footer";
+import { Calendar, TrendingUp, BarChart3, Shield, ExternalLink, Zap, CheckCircle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Link } from "wouter";
@@ -34,9 +35,9 @@ export default function AdvisorDetail() {
   const publishedStrategies = (advisor.strategies || []).filter((s) => s.status === "Published");
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background flex flex-col">
       <Navbar />
-      <div className="max-w-5xl mx-auto px-4 md:px-6 py-6 space-y-6">
+      <div className="flex-1 max-w-5xl mx-auto px-4 md:px-6 py-6 space-y-6 w-full">
         <div className="flex flex-col md:flex-row gap-4 items-start">
           <Avatar className="w-16 h-16">
             {advisor.logoUrl && <AvatarImage src={advisor.logoUrl} />}
@@ -46,13 +47,16 @@ export default function AdvisorDetail() {
           </Avatar>
           <div className="flex-1 space-y-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl font-bold">{advisor.companyName || advisor.username}</h1>
+              <h1 className="text-2xl font-bold" data-testid="text-advisor-name">{advisor.companyName || advisor.username}</h1>
               <Badge variant="secondary">
                 <Shield className="w-3 h-3 mr-1" /> Registered
               </Badge>
             </div>
             {advisor.sebiRegNumber && (
-              <p className="text-sm text-muted-foreground">Registration: {advisor.sebiRegNumber}</p>
+              <p className="text-sm text-muted-foreground" data-testid="text-sebi-reg">Registration: {advisor.sebiRegNumber}</p>
+            )}
+            {advisor.themes && advisor.themes.length > 0 && (
+              <p className="text-sm text-muted-foreground">Theme: {advisor.themes.join(" | ")}</p>
             )}
           </div>
         </div>
@@ -64,16 +68,16 @@ export default function AdvisorDetail() {
                 <CardTitle className="text-base">Details</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-line">
+                <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-line" data-testid="text-advisor-overview">
                   {advisor.overview || "No overview provided."}
                 </p>
-                <div className="flex items-center gap-6 mt-4 text-sm">
+                <div className="flex items-center gap-6 mt-4 text-sm flex-wrap">
                   <div className="flex items-center gap-2">
                     <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center">
                       <Calendar className="w-4 h-4 text-primary" />
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground">Live Since</p>
+                      <p className="text-xs text-muted-foreground">Active Since</p>
                       <p className="font-medium text-xs">
                         {advisor.activeSince
                           ? new Date(advisor.activeSince).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
@@ -83,11 +87,20 @@ export default function AdvisorDetail() {
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="w-8 h-8 rounded-md bg-accent/10 flex items-center justify-center">
-                      <TrendingUp className="w-4 h-4 text-accent" />
+                      <Zap className="w-4 h-4 text-accent" />
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground">Stocks in Buy Zone</p>
-                      <p className="font-medium">0</p>
+                      <p className="text-xs text-muted-foreground">Live Strategies</p>
+                      <p className="font-medium">{publishedStrategies.length}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center">
+                      <CheckCircle className="w-4 h-4 text-primary" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Registered</p>
+                      <p className="font-medium text-xs">Yes</p>
                     </div>
                   </div>
                 </div>
@@ -96,17 +109,21 @@ export default function AdvisorDetail() {
 
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-base">Live Strategies</CardTitle>
+                <CardTitle className="text-base">Live Strategies ({publishedStrategies.length})</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 {publishedStrategies.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-4">No live strategies yet</p>
                 ) : (
                   publishedStrategies.map((s) => (
-                    <div key={s.id} className="flex items-center justify-between gap-3 p-3 rounded-md bg-muted/50">
-                      <div className="min-w-0">
+                    <div key={s.id} className="flex items-center justify-between gap-3 p-3 rounded-md bg-muted/50" data-testid={`strategy-row-${s.id}`}>
+                      <div className="min-w-0 flex-1">
                         <p className="font-medium text-sm truncate">{s.name}</p>
-                        <p className="text-xs text-muted-foreground line-clamp-1">{s.description}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Badge variant="outline" className="text-xs">{s.type}</Badge>
+                          {s.horizon && <span className="text-xs text-muted-foreground">{s.horizon}</span>}
+                        </div>
+                        <p className="text-xs text-muted-foreground line-clamp-1 mt-1">{s.description}</p>
                       </div>
                       <Link href={`/strategies/${s.id}`}>
                         <Button variant="outline" size="sm" data-testid={`button-strategy-${s.id}`}>
@@ -129,11 +146,19 @@ export default function AdvisorDetail() {
                 <div className="grid grid-cols-1 gap-2 text-sm">
                   <div className="p-2 rounded-md bg-muted/50 text-center space-y-1">
                     <p className="text-xs text-muted-foreground">Theme</p>
-                    <p className="font-medium">{advisor.themes?.join(", ") || "Equity"}</p>
+                    <p className="font-medium">{advisor.themes?.join(" | ") || "Equity"}</p>
                   </div>
                   <div className="p-2 rounded-md bg-muted/50 text-center space-y-1">
                     <p className="text-xs text-muted-foreground">Registration Number</p>
                     <p className="font-medium">{advisor.sebiRegNumber || "N/A"}</p>
+                  </div>
+                  <div className="p-2 rounded-md bg-muted/50 text-center space-y-1">
+                    <p className="text-xs text-muted-foreground">Active Since</p>
+                    <p className="font-medium">
+                      {advisor.activeSince
+                        ? new Date(advisor.activeSince).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+                        : "N/A"}
+                    </p>
                   </div>
                 </div>
               </CardContent>
@@ -148,7 +173,7 @@ export default function AdvisorDetail() {
                   <p className="text-sm text-muted-foreground text-center py-2">No content published</p>
                 ) : (
                   (advisor.contents || []).slice(0, 5).map((c) => (
-                    <div key={c.id} className="flex items-center gap-2 text-sm p-2 rounded-md bg-muted/50">
+                    <div key={c.id} className="flex items-center gap-2 text-sm p-2 rounded-md bg-muted/50" data-testid={`content-item-${c.id}`}>
                       <BarChart3 className="w-3 h-3 text-primary flex-shrink-0" />
                       <span className="truncate">{c.title}</span>
                     </div>
@@ -187,6 +212,7 @@ export default function AdvisorDetail() {
           </div>
         </div>
       </div>
+      <Footer />
     </div>
   );
 }

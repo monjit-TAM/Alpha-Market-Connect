@@ -6,7 +6,7 @@ import { z } from "zod";
 export const roleEnum = pgEnum("role", ["advisor", "investor"]);
 export const strategyStatusEnum = pgEnum("strategy_status", ["Draft", "Published"]);
 export const callStatusEnum = pgEnum("call_status", ["Active", "Closed"]);
-export const strategyTypeEnum = pgEnum("strategy_type", ["Equity", "Basket", "Future", "Commodity", "Option"]);
+export const strategyTypeEnum = pgEnum("strategy_type", ["Equity", "Basket", "Future", "Commodity", "CommodityFuture", "Option"]);
 
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -38,6 +38,7 @@ export const strategies = pgTable("strategies", {
   horizon: text("horizon"),
   keySectors: text("key_sectors").array(),
   volatility: text("volatility"),
+  riskLevel: text("risk_level"),
   benchmark: text("benchmark"),
   minimumInvestment: numeric("minimum_investment"),
   cagr: numeric("cagr"),
