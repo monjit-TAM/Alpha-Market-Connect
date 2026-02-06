@@ -15,6 +15,8 @@ import Dashboard from "@/pages/dashboard/index";
 import AdminDashboard from "@/pages/admin/index";
 import MarketOutlook from "@/pages/market-outlook";
 import LearnPage from "@/pages/learn";
+import ForgotPasswordPage from "@/pages/forgot-password";
+import ResetPasswordPage from "@/pages/reset-password";
 
 function Router() {
   return (
@@ -22,6 +24,8 @@ function Router() {
       <Route path="/" component={Home} />
       <Route path="/login" component={LoginPage} />
       <Route path="/register" component={RegisterPage} />
+      <Route path="/forgot-password" component={ForgotPasswordPage} />
+      <Route path="/reset-password" component={ResetPasswordPage} />
       <Route path="/strategies" component={StrategiesMarketplace} />
       <Route path="/strategies/:id" component={StrategyDetail} />
       <Route path="/advisors" component={AdvisorsListing} />

@@ -18,6 +18,11 @@ AlphaMarket is a SaaS marketplace platform connecting SEBI-registered Indian adv
 - **Auth**: Session-based with scrypt password hashing
 
 ## Recent Changes
+- Added Forgot Password flow with email-based password reset (token expires in 1 hour)
+- Login now accepts username OR email
+- Registration now sends welcome/confirmation email to the user (in addition to admin notification)
+- Public strategies page now filters out strategies from unapproved advisors
+- Added password_reset_tokens table for secure password reset tokens
 - Enhanced strategy management: Horizon column in table, Edit Strategy in actions dropdown, plan mapping with checkboxes
 - Strategy actions dropdown now filters call types by strategy type (Equity→Stock Call, Option→Option Call, etc.)
 - Added `planIds` array column to strategies table for flexible pricing plan mapping

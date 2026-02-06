@@ -5,7 +5,7 @@ import { storage } from "./storage";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
-import { sendRegistrationNotification } from "./email";
+import { sendRegistrationNotification, sendUserWelcomeEmail, sendPasswordResetEmail } from "./email";
 
 const scryptAsync = promisify(scrypt);
 
@@ -117,6 +117,13 @@ export async function registerRoutes(
         sebiRegNumber: sebiRegNumber || undefined,
         sebiCertUrl: sebiCertUrl || undefined,
       }).catch((err) => console.error("Email notification error:", err));
+
+      sendUserWelcomeEmail({
+        email,
+        username,
+        role: role || "investor",
+        companyName: companyName || undefined,
+      }).catch((err) => console.error("Welcome email error:", err));
     } catch (err: any) {
       res.status(500).send(err.message);
     }
@@ -125,7 +132,10 @@ export async function registerRoutes(
   app.post("/api/auth/login", async (req, res) => {
     try {
       const { username, password } = req.body;
-      const user = await storage.getUserByUsername(username);
+      let user = await storage.getUserByUsername(username);
+      if (!user) {
+        user = await storage.getUserByEmail(username);
+      }
       if (!user) return res.status(401).send("Invalid credentials");
       const valid = await comparePasswords(password, user.password);
       if (!valid) return res.status(401).send("Invalid credentials");
@@ -148,6 +158,53 @@ export async function registerRoutes(
   app.post("/api/auth/logout", (req, res) => {
     req.session.destroy(() => {});
     res.json({ ok: true });
+  });
+
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email) return res.status(400).send("Email is required");
+
+      const user = await storage.getUserByEmail(email);
+      if (!user) {
+        return res.json({ ok: true, message: "If an account with that email exists, a password reset link has been sent." });
+      }
+
+      const token = randomBytes(32).toString("hex");
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+      await storage.createPasswordResetToken(user.id, token, expiresAt);
+
+      const protocol = req.headers["x-forwarded-proto"] || "https";
+      const host = req.headers["host"] || "localhost:5000";
+      const appUrl = `${protocol}://${host}`;
+
+      await sendPasswordResetEmail(email, token, appUrl);
+
+      res.json({ ok: true, message: "If an account with that email exists, a password reset link has been sent." });
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.post("/api/auth/reset-password", async (req, res) => {
+    try {
+      const { token, password } = req.body;
+      if (!token || !password) return res.status(400).send("Token and password are required");
+      if (password.length < 6) return res.status(400).send("Password must be at least 6 characters");
+
+      const resetToken = await storage.getPasswordResetToken(token);
+      if (!resetToken) return res.status(400).send("Invalid or expired reset link");
+      if (resetToken.used) return res.status(400).send("This reset link has already been used");
+      if (new Date() > new Date(resetToken.expiresAt)) return res.status(400).send("This reset link has expired");
+
+      const hashedPassword = await hashPassword(password);
+      await storage.updateUserPassword(resetToken.userId, hashedPassword);
+      await storage.markTokenUsed(resetToken.id);
+
+      res.json({ ok: true, message: "Password has been reset successfully. You can now sign in with your new password." });
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
   });
 
   // Advisor public routes (only approved advisors)
