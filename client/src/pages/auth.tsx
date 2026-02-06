@@ -509,6 +509,12 @@ export function RegisterPage() {
                 <p className="text-xs text-destructive">Passwords do not match</p>
               )}
             </div>
+            <p className="text-xs text-muted-foreground leading-relaxed" data-testid="text-signup-consent">
+              By signing up, you have read and agreed to The AlphaMarket's{" "}
+              <Link href="/agreements/advisor-participation" className="text-primary underline">T&C</Link>,{" "}
+              <Link href="/agreements/ia-ra-services" className="text-primary underline">Privacy Policy</Link> and{" "}
+              <Link href="/agreements/ia-ra-services" className="text-primary underline">Disclaimer</Link> and agree to receive calls, SMS, Whatsapp and email communication from Alphamarket.
+            </p>
             <Button type="submit" className="w-full" disabled={loading || isUploading} data-testid="button-register">
               {loading && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
               Create Account
