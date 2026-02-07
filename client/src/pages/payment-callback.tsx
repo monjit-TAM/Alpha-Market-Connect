@@ -113,18 +113,18 @@ export default function PaymentCallbackPage() {
                   </p>
                 </div>
                 <div className="flex items-center justify-center gap-3 flex-wrap">
+                  <Link href="/investor-dashboard">
+                    <Button data-testid="button-go-dashboard">
+                      Go to Dashboard
+                    </Button>
+                  </Link>
                   {strategyId && (
                     <Link href={`/strategies/${strategyId}`}>
-                      <Button data-testid="button-view-strategy">
+                      <Button variant="outline" data-testid="button-view-strategy">
                         View Strategy
                       </Button>
                     </Link>
                   )}
-                  <Link href="/strategies">
-                    <Button variant="outline" data-testid="button-browse-strategies">
-                      Browse Strategies
-                    </Button>
-                  </Link>
                 </div>
               </>
             )}

@@ -76,6 +76,9 @@ export interface IStorage {
   getPaymentsByAdvisor(advisorId: string): Promise<Payment[]>;
   getPaymentsByStrategy(strategyId: string): Promise<Payment[]>;
   updateSubscription(id: string, data: Partial<Subscription>): Promise<Subscription>;
+  getSubscriptionsByUserId(userId: string): Promise<Subscription[]>;
+  getCallsByStrategy(strategyId: string): Promise<Call[]>;
+  getPositionsByStrategy(strategyId: string): Promise<Position[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -431,6 +434,18 @@ export class DatabaseStorage implements IStorage {
   async updateSubscription(id: string, data: Partial<Subscription>): Promise<Subscription> {
     const [s] = await db.update(subscriptions).set(data).where(eq(subscriptions.id, id)).returning();
     return s;
+  }
+
+  async getSubscriptionsByUserId(userId: string): Promise<Subscription[]> {
+    return db.select().from(subscriptions).where(eq(subscriptions.userId, userId)).orderBy(desc(subscriptions.createdAt));
+  }
+
+  async getCallsByStrategy(strategyId: string): Promise<Call[]> {
+    return db.select().from(calls).where(eq(calls.strategyId, strategyId)).orderBy(desc(calls.createdAt));
+  }
+
+  async getPositionsByStrategy(strategyId: string): Promise<Position[]> {
+    return db.select().from(positions).where(eq(positions.strategyId, strategyId)).orderBy(desc(positions.createdAt));
   }
 }
 

@@ -1,0 +1,491 @@
+import { useQuery } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Navbar } from "@/components/navbar";
+import { Footer } from "@/components/footer";
+import { useAuth } from "@/lib/auth";
+import { useLocation, Link } from "wouter";
+import { Skeleton } from "@/components/ui/skeleton";
+import { TrendingUp, TrendingDown, ArrowUp, ArrowDown, Calendar, Shield, Zap, BarChart3, Eye } from "lucide-react";
+import type { Call, Position, Subscription } from "@shared/schema";
+import { apiRequest } from "@/lib/queryClient";
+import { useState } from "react";
+
+interface LivePrice {
+  symbol: string;
+  exchange: string;
+  ltp: number;
+  change: number;
+  changePercent: number;
+  high: number;
+  low: number;
+}
+
+interface EnrichedSubscription extends Subscription {
+  strategyName: string;
+  strategyType: string;
+  strategySegment: string;
+  strategyCagr: string;
+  strategyHorizon: string;
+  strategyRisk: string;
+  strategyStatus: string;
+  strategyDescription: string;
+  advisorName: string;
+  advisorSebi: string;
+  planName: string;
+  planDuration: string;
+  planPrice: string;
+}
+
+interface EnrichedCall extends Call {
+  strategyName: string;
+  advisorName: string;
+}
+
+interface EnrichedPosition extends Position {
+  strategyName: string;
+  advisorName: string;
+  action?: string;
+  expiryDate?: string | null;
+  optionType?: string | null;
+  targetPrice?: string | null;
+}
+
+interface RecommendationsData {
+  calls: EnrichedCall[];
+  positions: EnrichedPosition[];
+}
+
+function getRiskBadge(risk: string | null | undefined) {
+  if (!risk) return null;
+  const lower = risk.toLowerCase();
+  if (lower.includes("high")) return <Badge variant="destructive" data-testid={`badge-risk-${risk}`}>{risk}</Badge>;
+  if (lower.includes("low")) return <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300" data-testid={`badge-risk-${risk}`}>{risk}</Badge>;
+  return <Badge variant="secondary" className="bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300" data-testid={`badge-risk-${risk}`}>{risk}</Badge>;
+}
+
+const PERFORMANCE_PERIODS = [
+  { key: "1W", label: "1 Week", days: 7 },
+  { key: "1M", label: "1 Month", days: 30 },
+  { key: "3M", label: "3 Months", days: 90 },
+  { key: "6M", label: "6 Months", days: 180 },
+  { key: "1Y", label: "1 Year", days: 365 },
+  { key: "3Y", label: "3 Years", days: 1095 },
+  { key: "Max", label: "Max", days: 99999 },
+];
+
+export default function InvestorDashboard() {
+  const { user } = useAuth();
+  const [, navigate] = useLocation();
+  const [perfPeriod, setPerfPeriod] = useState("Max");
+
+  if (!user) {
+    navigate("/login");
+    return null;
+  }
+
+  const { data: subscriptions, isLoading: loadingSubs } = useQuery<EnrichedSubscription[]>({
+    queryKey: ["/api/investor/subscriptions"],
+  });
+
+  const { data: recommendations, isLoading: loadingRecs } = useQuery<RecommendationsData>({
+    queryKey: ["/api/investor/recommendations"],
+  });
+
+  const activeCalls = (recommendations?.calls || []).filter(c => c.status === "Active");
+  const closedCalls = (recommendations?.calls || []).filter(c => c.status === "Closed");
+  const activePositions = (recommendations?.positions || []).filter(p => p.status === "Active");
+  const closedPositions = (recommendations?.positions || []).filter(p => p.status === "Closed");
+
+  const activeCallSymbols = activeCalls.map(c => ({ symbol: c.stockName, strategyType: "Equity" }));
+  const activePositionSymbols = activePositions.map(p => ({ symbol: p.symbol, strategyType: "Option" }));
+  const allActiveSymbols = [...activeCallSymbols, ...activePositionSymbols];
+
+  const { data: livePrices } = useQuery<Record<string, LivePrice>>({
+    queryKey: ["/api/live-prices", "investor-dashboard"],
+    queryFn: async () => {
+      if (!allActiveSymbols.length) return {};
+      const res = await apiRequest("POST", "/api/live-prices/bulk", { symbols: allActiveSymbols });
+      return res.json();
+    },
+    enabled: allActiveSymbols.length > 0,
+    refetchInterval: 15000,
+  });
+
+  const selectedPeriod = PERFORMANCE_PERIODS.find(p => p.key === perfPeriod) || PERFORMANCE_PERIODS[6];
+  const periodCutoff = new Date();
+  periodCutoff.setDate(periodCutoff.getDate() - selectedPeriod.days);
+
+  const getClosedRecsInPeriod = () => {
+    const filteredCalls = closedCalls.filter(c => {
+      const exitDate = c.exitDate ? new Date(c.exitDate) : null;
+      return exitDate && exitDate >= periodCutoff;
+    });
+    const filteredPositions = closedPositions.filter(p => {
+      const exitDate = p.exitDate ? new Date(p.exitDate) : null;
+      return exitDate && exitDate >= periodCutoff;
+    });
+    return { calls: filteredCalls, positions: filteredPositions };
+  };
+
+  const periodRecs = getClosedRecsInPeriod();
+  const totalClosedRecs = periodRecs.calls.length + periodRecs.positions.length;
+  const profitableRecs = [
+    ...periodRecs.calls.filter(c => Number(c.gainPercent || 0) > 0),
+    ...periodRecs.positions.filter(p => Number(p.gainPercent || 0) > 0),
+  ].length;
+  const avgGain = totalClosedRecs > 0
+    ? ([...periodRecs.calls, ...periodRecs.positions].reduce((sum, r) => sum + Number(r.gainPercent || 0), 0) / totalClosedRecs).toFixed(2)
+    : "0";
+  const successRate = totalClosedRecs > 0 ? ((profitableRecs / totalClosedRecs) * 100).toFixed(1) : "0";
+
+  if (loadingSubs) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col">
+        <Navbar />
+        <div className="flex-1 max-w-6xl mx-auto px-4 md:px-6 py-6 space-y-4 w-full">
+          <Skeleton className="h-8 w-60" />
+          <div className="grid md:grid-cols-3 gap-4">
+            <Skeleton className="h-32" />
+            <Skeleton className="h-32" />
+            <Skeleton className="h-32" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-background flex flex-col">
+      <Navbar />
+      <div className="flex-1 max-w-6xl mx-auto px-4 md:px-6 py-6 space-y-6 w-full">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <h1 className="text-2xl font-bold" data-testid="text-investor-dashboard-title">My Dashboard</h1>
+          <Link href="/strategies">
+            <Button variant="outline" size="sm" data-testid="button-explore-strategies">
+              <Eye className="w-3 h-3 mr-1" /> Explore Strategies
+            </Button>
+          </Link>
+        </div>
+
+        {(!subscriptions || subscriptions.length === 0) ? (
+          <Card>
+            <CardContent className="py-12 text-center space-y-4">
+              <BarChart3 className="w-12 h-12 mx-auto text-muted-foreground/50" />
+              <div className="space-y-1">
+                <h3 className="text-lg font-semibold">No Active Subscriptions</h3>
+                <p className="text-sm text-muted-foreground">Subscribe to strategies to see recommendations and track performance.</p>
+              </div>
+              <Link href="/strategies">
+                <Button data-testid="button-browse-strategies">Browse Strategies</Button>
+              </Link>
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            <div className="space-y-4">
+              <h2 className="text-lg font-semibold" data-testid="text-subscribed-strategies">My Subscribed Strategies ({subscriptions.length})</h2>
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {subscriptions.map((sub) => (
+                  <Card key={sub.id} className="hover-elevate" data-testid={`card-subscription-${sub.id}`}>
+                    <CardContent className="p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <Link href={`/strategies/${sub.strategyId}`}>
+                            <h3 className="font-semibold text-sm truncate hover:underline cursor-pointer" data-testid={`text-strategy-name-${sub.id}`}>{sub.strategyName}</h3>
+                          </Link>
+                          <p className="text-xs text-muted-foreground mt-0.5">{sub.advisorName}</p>
+                        </div>
+                        {getRiskBadge(sub.strategyRisk)}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                          <span className="text-muted-foreground">Type</span>
+                          <p className="font-medium">{sub.strategyType || "--"}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Horizon</span>
+                          <p className="font-medium">{sub.strategyHorizon || "--"}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Plan</span>
+                          <p className="font-medium">{sub.planName || "--"}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">CAGR</span>
+                          <p className="font-medium">{Number(sub.strategyCagr) || 0}%</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between text-xs pt-1 border-t">
+                        <div className="text-muted-foreground">
+                          <Calendar className="w-3 h-3 inline mr-1" />
+                          Subscribed: {sub.createdAt ? new Date(sub.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "--"}
+                        </div>
+                        <Badge variant="secondary" className="text-[10px]">{sub.status}</Badge>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <h2 className="text-lg font-semibold" data-testid="text-performance-title">Strategy Performance</h2>
+                <div className="flex gap-1 flex-wrap">
+                  {PERFORMANCE_PERIODS.map(p => (
+                    <Button
+                      key={p.key}
+                      size="sm"
+                      variant={perfPeriod === p.key ? "default" : "outline"}
+                      className="text-xs"
+                      onClick={() => setPerfPeriod(p.key)}
+                      data-testid={`button-period-${p.key}`}
+                    >
+                      {p.key}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <Card>
+                  <CardContent className="p-4 text-center space-y-1">
+                    <p className="text-xs text-muted-foreground">Closed Recs</p>
+                    <p className="text-xl font-bold" data-testid="text-total-closed">{totalClosedRecs}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4 text-center space-y-1">
+                    <p className="text-xs text-muted-foreground">Profitable</p>
+                    <p className="text-xl font-bold text-green-600 dark:text-green-400" data-testid="text-profitable">{profitableRecs}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4 text-center space-y-1">
+                    <p className="text-xs text-muted-foreground">Avg Gain %</p>
+                    <p className={`text-xl font-bold ${Number(avgGain) >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`} data-testid="text-avg-gain">{avgGain}%</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4 text-center space-y-1">
+                    <p className="text-xs text-muted-foreground">Success Rate</p>
+                    <p className="text-xl font-bold" data-testid="text-success-rate">{successRate}%</p>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+
+            <Tabs defaultValue="active" className="space-y-4">
+              <TabsList>
+                <TabsTrigger value="active" data-testid="tab-active-recs">
+                  Active ({activeCalls.length + activePositions.length})
+                </TabsTrigger>
+                <TabsTrigger value="closed" data-testid="tab-closed-recs">
+                  Past / Closed ({closedCalls.length + closedPositions.length})
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="active">
+                <Card>
+                  <CardHeader className="pb-2 flex flex-row items-center justify-between gap-2 flex-wrap">
+                    <CardTitle className="text-base">Active Recommendations</CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    {activeCalls.length === 0 && activePositions.length === 0 ? (
+                      <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                        No active recommendations at the moment
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm" data-testid="table-active-recommendations">
+                          <thead>
+                            <tr className="border-b text-xs text-muted-foreground">
+                              <th className="text-left py-2 px-3 font-medium">Stock</th>
+                              <th className="text-left py-2 px-3 font-medium">Buy Price</th>
+                              <th className="text-left py-2 px-3 font-medium">LTP</th>
+                              <th className="text-left py-2 px-3 font-medium">P&L %</th>
+                              <th className="text-left py-2 px-3 font-medium">Target</th>
+                              <th className="text-left py-2 px-3 font-medium">Stop Loss</th>
+                              <th className="text-left py-2 px-3 font-medium">Advisor</th>
+                              <th className="text-left py-2 px-3 font-medium">Strategy</th>
+                              <th className="text-left py-2 px-3 font-medium">Date</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {activeCalls.map(call => {
+                              const lp = livePrices?.[call.stockName];
+                              const buyPrice = Number(call.entryPrice || call.buyRangeStart || 0);
+                              const currentPrice = lp?.ltp || 0;
+                              const isSell = call.action === "Sell";
+                              const pnl = buyPrice > 0 && currentPrice > 0
+                                ? (isSell ? ((buyPrice - currentPrice) / buyPrice) * 100 : ((currentPrice - buyPrice) / buyPrice) * 100)
+                                : null;
+                              return (
+                                <tr key={`call-${call.id}`} className="border-b last:border-0" data-testid={`row-active-call-${call.id}`}>
+                                  <td className="py-2 px-3 font-medium">{call.stockName}</td>
+                                  <td className="py-2 px-3">{buyPrice ? `\u20B9${buyPrice}` : "--"}</td>
+                                  <td className="py-2 px-3">
+                                    {lp ? (
+                                      <span className="flex items-center gap-1">
+                                        {"\u20B9"}{lp.ltp.toFixed(2)}
+                                        {lp.changePercent >= 0
+                                          ? <ArrowUp className="w-3 h-3 text-green-500" />
+                                          : <ArrowDown className="w-3 h-3 text-red-500" />}
+                                      </span>
+                                    ) : "--"}
+                                  </td>
+                                  <td className="py-2 px-3">
+                                    {pnl !== null ? (
+                                      <span className={pnl >= 0 ? "text-green-600 dark:text-green-400 font-medium" : "text-red-600 dark:text-red-400 font-medium"}>
+                                        {pnl >= 0 ? "+" : ""}{pnl.toFixed(2)}%
+                                      </span>
+                                    ) : "--"}
+                                  </td>
+                                  <td className="py-2 px-3">{call.targetPrice ? `\u20B9${call.targetPrice}` : "--"}</td>
+                                  <td className="py-2 px-3">{call.stopLoss ? `\u20B9${call.stopLoss}` : "--"}</td>
+                                  <td className="py-2 px-3 text-xs text-muted-foreground">{call.advisorName}</td>
+                                  <td className="py-2 px-3 text-xs text-muted-foreground">{call.strategyName}</td>
+                                  <td className="py-2 px-3 text-xs">
+                                    {call.createdAt ? new Date(call.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "--"}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                            {activePositions.map(pos => {
+                              const lp = livePrices?.[pos.symbol || ""];
+                              const entryPrice = Number(pos.entryPrice || 0);
+                              const currentPrice = lp?.ltp || 0;
+                              const isSell = pos.buySell === "Sell";
+                              const pnl = entryPrice > 0 && currentPrice > 0
+                                ? (isSell ? ((entryPrice - currentPrice) / entryPrice) * 100 : ((currentPrice - entryPrice) / entryPrice) * 100)
+                                : null;
+                              const symbolLabel = `${pos.symbol || ""} ${pos.expiry || ""} ${pos.strikePrice || ""} ${pos.callPut || ""}`.trim();
+                              return (
+                                <tr key={`pos-${pos.id}`} className="border-b last:border-0" data-testid={`row-active-pos-${pos.id}`}>
+                                  <td className="py-2 px-3 font-medium">{symbolLabel}</td>
+                                  <td className="py-2 px-3">{entryPrice ? `\u20B9${entryPrice}` : "--"}</td>
+                                  <td className="py-2 px-3">
+                                    {lp ? (
+                                      <span className="flex items-center gap-1">
+                                        {"\u20B9"}{lp.ltp.toFixed(2)}
+                                        {lp.changePercent >= 0
+                                          ? <ArrowUp className="w-3 h-3 text-green-500" />
+                                          : <ArrowDown className="w-3 h-3 text-red-500" />}
+                                      </span>
+                                    ) : "--"}
+                                  </td>
+                                  <td className="py-2 px-3">
+                                    {pnl !== null ? (
+                                      <span className={pnl >= 0 ? "text-green-600 dark:text-green-400 font-medium" : "text-red-600 dark:text-red-400 font-medium"}>
+                                        {pnl >= 0 ? "+" : ""}{pnl.toFixed(2)}%
+                                      </span>
+                                    ) : "--"}
+                                  </td>
+                                  <td className="py-2 px-3">{pos.target ? `\u20B9${pos.target}` : "--"}</td>
+                                  <td className="py-2 px-3">{pos.stopLoss ? `\u20B9${pos.stopLoss}` : "--"}</td>
+                                  <td className="py-2 px-3 text-xs text-muted-foreground">{pos.advisorName}</td>
+                                  <td className="py-2 px-3 text-xs text-muted-foreground">{pos.strategyName}</td>
+                                  <td className="py-2 px-3 text-xs">
+                                    {pos.createdAt ? new Date(pos.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "--"}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="closed">
+                <Card>
+                  <CardHeader className="pb-2 flex flex-row items-center justify-between gap-2 flex-wrap">
+                    <CardTitle className="text-base">Past / Closed Recommendations</CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    {closedCalls.length === 0 && closedPositions.length === 0 ? (
+                      <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                        No past recommendations yet
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm" data-testid="table-closed-recommendations">
+                          <thead>
+                            <tr className="border-b text-xs text-muted-foreground">
+                              <th className="text-left py-2 px-3 font-medium">Stock</th>
+                              <th className="text-left py-2 px-3 font-medium">Entry Price</th>
+                              <th className="text-left py-2 px-3 font-medium">Exit Price</th>
+                              <th className="text-left py-2 px-3 font-medium">Gain/Loss</th>
+                              <th className="text-left py-2 px-3 font-medium">Advisor</th>
+                              <th className="text-left py-2 px-3 font-medium">Strategy</th>
+                              <th className="text-left py-2 px-3 font-medium">Entry Date</th>
+                              <th className="text-left py-2 px-3 font-medium">Exit Date</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {closedCalls.map(call => (
+                              <tr key={`call-${call.id}`} className="border-b last:border-0" data-testid={`row-closed-call-${call.id}`}>
+                                <td className="py-2 px-3 font-medium">{call.stockName}</td>
+                                <td className="py-2 px-3">{call.entryPrice ? `\u20B9${call.entryPrice}` : "--"}</td>
+                                <td className="py-2 px-3">{call.sellPrice != null ? `\u20B9${call.sellPrice}` : "--"}</td>
+                                <td className="py-2 px-3">
+                                  {call.gainPercent != null ? (
+                                    <span className={Number(call.gainPercent) >= 0 ? "text-green-600 dark:text-green-400 font-medium" : "text-red-600 dark:text-red-400 font-medium"}>
+                                      {Number(call.gainPercent) >= 0 ? "+" : ""}{call.gainPercent}%
+                                    </span>
+                                  ) : "--"}
+                                </td>
+                                <td className="py-2 px-3 text-xs text-muted-foreground">{call.advisorName}</td>
+                                <td className="py-2 px-3 text-xs text-muted-foreground">{call.strategyName}</td>
+                                <td className="py-2 px-3 text-xs">
+                                  {call.createdAt ? new Date(call.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "--"}
+                                </td>
+                                <td className="py-2 px-3 text-xs">
+                                  {call.exitDate ? new Date(call.exitDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "--"}
+                                </td>
+                              </tr>
+                            ))}
+                            {closedPositions.map(pos => {
+                              const symbolLabel = `${pos.symbol || ""} ${pos.expiry || ""} ${pos.strikePrice || ""} ${pos.callPut || ""}`.trim();
+                              return (
+                                <tr key={`pos-${pos.id}`} className="border-b last:border-0" data-testid={`row-closed-pos-${pos.id}`}>
+                                  <td className="py-2 px-3 font-medium">{symbolLabel}</td>
+                                  <td className="py-2 px-3">{pos.entryPrice ? `\u20B9${pos.entryPrice}` : "--"}</td>
+                                  <td className="py-2 px-3">{pos.exitPrice != null ? `\u20B9${pos.exitPrice}` : "--"}</td>
+                                  <td className="py-2 px-3">
+                                    {pos.gainPercent != null ? (
+                                      <span className={Number(pos.gainPercent) >= 0 ? "text-green-600 dark:text-green-400 font-medium" : "text-red-600 dark:text-red-400 font-medium"}>
+                                        {Number(pos.gainPercent) >= 0 ? "+" : ""}{pos.gainPercent}%
+                                      </span>
+                                    ) : "--"}
+                                  </td>
+                                  <td className="py-2 px-3 text-xs text-muted-foreground">{pos.advisorName}</td>
+                                  <td className="py-2 px-3 text-xs text-muted-foreground">{pos.strategyName}</td>
+                                  <td className="py-2 px-3 text-xs">
+                                    {pos.createdAt ? new Date(pos.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "--"}
+                                  </td>
+                                  <td className="py-2 px-3 text-xs">
+                                    {pos.exitDate ? new Date(pos.exitDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "--"}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
+          </>
+        )}
+      </div>
+      <Footer />
+    </div>
+  );
+}

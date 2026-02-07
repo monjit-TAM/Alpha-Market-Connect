@@ -67,15 +67,20 @@ export default function StrategyDetail() {
   const activeCallSymbols = (calls || [])
     .filter((c) => c.status === "Active")
     .map((c) => ({ symbol: c.stockName, strategyType: strategy?.type }));
+  const activePositionSymbols = (positions || [])
+    .filter((p) => p.status === "Active")
+    .map((p) => ({ symbol: p.symbol || "", strategyType: strategy?.type }))
+    .filter((p) => p.symbol);
+  const allActiveSymbols = [...activeCallSymbols, ...activePositionSymbols];
 
   const { data: livePrices } = useQuery<Record<string, LivePrice>>({
     queryKey: ["/api/live-prices", id, "active"],
     queryFn: async () => {
-      if (!activeCallSymbols.length) return {};
-      const res = await apiRequest("POST", "/api/live-prices/bulk", { symbols: activeCallSymbols });
+      if (!allActiveSymbols.length) return {};
+      const res = await apiRequest("POST", "/api/live-prices/bulk", { symbols: allActiveSymbols });
       return res.json();
     },
-    enabled: canViewActiveCalls && activeCallSymbols.length > 0,
+    enabled: canViewActiveCalls && allActiveSymbols.length > 0,
     refetchInterval: ["Future", "Option", "CommodityFuture"].includes(strategy?.type || "") ? 5000 : 15000,
   });
 
@@ -286,10 +291,10 @@ export default function StrategyDetail() {
                     {activeCalls.map((call) => {
                       const lp = livePrices?.[call.stockName];
                       const buyPrice = Number(call.entryPrice || call.buyRangeStart || 0);
-                      const targetPrice = Number(call.targetPrice || 0);
+                      const currentPrice = lp?.ltp || 0;
                       const isSell = call.action === "Sell";
-                      const pnl = buyPrice > 0 && targetPrice > 0
-                        ? (isSell ? ((buyPrice - targetPrice) / buyPrice) * 100 : ((targetPrice - buyPrice) / buyPrice) * 100)
+                      const pnl = buyPrice > 0 && currentPrice > 0
+                        ? (isSell ? ((buyPrice - currentPrice) / buyPrice) * 100 : ((currentPrice - buyPrice) / buyPrice) * 100)
                         : null;
                       return (
                         <>

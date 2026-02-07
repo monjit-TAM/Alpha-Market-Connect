@@ -1126,7 +1126,20 @@ export async function registerRoutes(
   app.get("/api/advisor/subscribers", requireAdvisor, async (req, res) => {
     try {
       const subs = await storage.getSubscriptions(req.session.userId!);
-      res.json(subs);
+      const enriched = await Promise.all(subs.map(async (sub) => {
+        const u = await storage.getUser(sub.userId);
+        const strategy = sub.strategyId ? await storage.getStrategy(sub.strategyId) : null;
+        const plan = sub.planId ? await storage.getPlan(sub.planId) : null;
+        return {
+          ...sub,
+          customerName: u?.companyName || u?.username || "Unknown",
+          customerEmail: u?.email || "",
+          customerPhone: u?.phone || "",
+          strategyName: strategy?.name || "",
+          planName: plan?.name || "",
+        };
+      }));
+      res.json(enriched);
     } catch (err: any) {
       res.status(500).send(err.message);
     }
@@ -1369,6 +1382,92 @@ export async function registerRoutes(
       }
       const result = setGrowwAccessToken(token.trim());
       res.json(result);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  // ==================== Advisor Revenue Route ====================
+  app.get("/api/advisor/revenue", requireAdvisor, async (req, res) => {
+    try {
+      const allPayments = await storage.getPaymentsByAdvisor(req.session.userId!);
+      const successfulPayments = allPayments.filter(p => p.status === "PAID");
+      const now = new Date();
+      const currentMonth = now.getMonth();
+      const currentYear = now.getFullYear();
+      const monthlyRevenue = successfulPayments
+        .filter(p => p.paidAt && new Date(p.paidAt).getMonth() === currentMonth && new Date(p.paidAt).getFullYear() === currentYear)
+        .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+      const ytdRevenue = successfulPayments
+        .filter(p => p.paidAt && new Date(p.paidAt).getFullYear() === currentYear)
+        .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+      res.json({ monthlyRevenue, ytdRevenue, totalPayments: successfulPayments.length });
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  // ==================== Investor Dashboard Routes ====================
+  app.get("/api/investor/subscriptions", requireAuth, async (req, res) => {
+    try {
+      const subs = await storage.getSubscriptionsByUserId(req.session.userId!);
+      const enriched = await Promise.all(subs.map(async (sub) => {
+        const strategy = sub.strategyId ? await storage.getStrategy(sub.strategyId) : null;
+        const plan = sub.planId ? await storage.getPlan(sub.planId) : null;
+        const advisor = strategy?.advisorId ? await storage.getUser(strategy.advisorId) : null;
+        return {
+          ...sub,
+          strategyName: strategy?.name || "",
+          strategyType: strategy?.type || "",
+          strategySegment: strategy?.segment || "",
+          strategyCagr: strategy?.cagr || "0",
+          strategyHorizon: strategy?.horizon || "",
+          strategyRisk: strategy?.riskLevel || "",
+          strategyStatus: strategy?.status || "",
+          strategyDescription: strategy?.description || "",
+          advisorName: advisor?.companyName || advisor?.username || "",
+          advisorSebi: advisor?.sebiRegNumber || "",
+          planName: plan?.name || "",
+          planDuration: plan?.durationDays ? `${plan.durationDays} days` : "",
+          planPrice: plan?.amount || "0",
+        };
+      }));
+      res.json(enriched);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.get("/api/investor/recommendations", requireAuth, async (req, res) => {
+    try {
+      const subs = await storage.getSubscriptionsByUserId(req.session.userId!);
+      const activeSubs = subs.filter(s => s.status === "active");
+      const allCalls: any[] = [];
+      const allPositions: any[] = [];
+      for (const sub of activeSubs) {
+        if (!sub.strategyId) continue;
+        const strategy = await storage.getStrategy(sub.strategyId);
+        const subDate = sub.createdAt ? new Date(sub.createdAt) : new Date(0);
+        const strategyCalls = await storage.getCallsByStrategy(sub.strategyId);
+        const strategyPositions = await storage.getPositionsByStrategy(sub.strategyId);
+        const filteredCalls = strategyCalls.filter(c => {
+          if (c.publishMode && c.publishMode !== "live") return false;
+          const callDate = c.createdAt ? new Date(c.createdAt) : new Date();
+          return callDate >= subDate;
+        });
+        const filteredPositions = strategyPositions.filter(p => {
+          if (p.publishMode && p.publishMode !== "live") return false;
+          const posDate = p.createdAt ? new Date(p.createdAt) : new Date();
+          return posDate >= subDate;
+        });
+        for (const c of filteredCalls) {
+          allCalls.push({ ...c, strategyName: strategy?.name || "", advisorName: strategy?.advisorId ? (await storage.getUser(strategy.advisorId))?.companyName || "" : "" });
+        }
+        for (const p of filteredPositions) {
+          allPositions.push({ ...p, strategyName: strategy?.name || "", advisorName: strategy?.advisorId ? (await storage.getUser(strategy.advisorId))?.companyName || "" : "" });
+        }
+      }
+      res.json({ calls: allCalls, positions: allPositions });
     } catch (err: any) {
       res.status(500).send(err.message);
     }

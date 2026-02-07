@@ -47,6 +47,14 @@ export function Navbar() {
         <div className="flex items-center gap-2 ml-auto">
           {user ? (
             <>
+              {user.role === "investor" && (
+                <Link href="/investor-dashboard">
+                  <Button variant="outline" size="sm" data-testid="link-investor-dashboard">
+                    <LayoutDashboard className="w-4 h-4 mr-1" />
+                    Dashboard
+                  </Button>
+                </Link>
+              )}
               {user.role === "advisor" && (
                 <Link href="/dashboard">
                   <Button variant="outline" size="sm" data-testid="link-dashboard">
@@ -79,6 +87,14 @@ export function Navbar() {
                     {user.email}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
+                  {user.role === "investor" && (
+                    <Link href="/investor-dashboard">
+                      <DropdownMenuItem data-testid="menu-investor-dashboard">
+                        <LayoutDashboard className="w-4 h-4 mr-2" />
+                        Dashboard
+                      </DropdownMenuItem>
+                    </Link>
+                  )}
                   {user.role === "advisor" && (
                     <Link href="/dashboard">
                       <DropdownMenuItem data-testid="menu-dashboard">

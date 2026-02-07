@@ -10,6 +10,20 @@ import type { Strategy, Call, Subscription, Content as ContentType } from "@shar
 import { Skeleton } from "@/components/ui/skeleton";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
 
+interface EnrichedSubscriber extends Subscription {
+  customerName: string;
+  customerEmail: string;
+  customerPhone: string;
+  strategyName: string;
+  planName: string;
+}
+
+interface RevenueData {
+  monthlyRevenue: number;
+  ytdRevenue: number;
+  totalPayments: number;
+}
+
 export default function DashboardHome() {
   const { user } = useAuth();
 
@@ -17,16 +31,20 @@ export default function DashboardHome() {
     queryKey: ["/api/advisor/strategies"],
   });
 
-  const { data: subscribers } = useQuery<Subscription[]>({
+  const { data: subscribers } = useQuery<EnrichedSubscriber[]>({
     queryKey: ["/api/advisor/subscribers"],
+  });
+
+  const { data: revenue } = useQuery<RevenueData>({
+    queryKey: ["/api/advisor/revenue"],
   });
 
   const { data: contents } = useQuery<ContentType[]>({
     queryKey: ["/api/advisor/content"],
   });
 
-  const monthlyRevenue = (subscribers || []).length * 999;
-  const ytdRevenue = monthlyRevenue * 6;
+  const monthlyRevenue = revenue?.monthlyRevenue || 0;
+  const ytdRevenue = revenue?.ytdRevenue || 0;
 
   const chartData = (strategies || []).map((s) => ({
     name: s.name.length > 12 ? s.name.slice(0, 12) + "..." : s.name,
@@ -36,6 +54,20 @@ export default function DashboardHome() {
   }));
 
   const hasChartData = chartData.some((d) => d.cagr !== 0);
+
+  const now = new Date();
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
+  const currentMonthSubs = (subscribers || []).filter(sub => {
+    if (!sub.createdAt) return false;
+    const d = new Date(sub.createdAt);
+    return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+  });
+  const previousSubs = (subscribers || []).filter(sub => {
+    if (!sub.createdAt) return true;
+    const d = new Date(sub.createdAt);
+    return d.getMonth() !== currentMonth || d.getFullYear() !== currentYear;
+  });
 
   return (
     <div className="space-y-6 max-w-5xl">
@@ -156,26 +188,31 @@ export default function DashboardHome() {
               <Card>
                 <CardContent className="p-0">
                   <div className="divide-y">
-                    <div className="flex items-center justify-between px-4 py-2 text-xs font-medium text-muted-foreground">
+                    <div className="grid grid-cols-[1fr_auto] px-4 py-2 text-xs font-medium text-muted-foreground gap-2">
                       <span>Customer</span>
-                      <div className="flex gap-6">
-                        <span>EKYC Done</span>
-                        <span>Risk Profiling</span>
+                      <div className="flex gap-4">
+                        <span className="w-16 text-center">EKYC</span>
+                        <span className="w-16 text-center">Risk Prof.</span>
                       </div>
                     </div>
-                    {(subscribers || []).length === 0 ? (
+                    {currentMonthSubs.length === 0 ? (
                       <div className="px-4 py-6 text-center text-sm text-muted-foreground">
-                        No subscribers yet
+                        No subscribers this month
                       </div>
                     ) : (
-                      (subscribers || []).slice(0, 5).map((sub, i) => (
-                        <div key={sub.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
-                          <span className="truncate">{sub.userId}</span>
-                          <div className="flex gap-10 text-xs">
-                            <span className={sub.ekycDone ? "text-accent font-medium" : "text-primary font-medium"}>
+                      currentMonthSubs.slice(0, 10).map((sub) => (
+                        <div key={sub.id} className="grid grid-cols-[1fr_auto] px-4 py-2.5 text-sm gap-2" data-testid={`row-subscriber-${sub.id}`}>
+                          <div className="min-w-0">
+                            <p className="font-medium truncate">{sub.customerName}</p>
+                            <p className="text-xs text-muted-foreground truncate">{sub.customerEmail}</p>
+                            {sub.customerPhone && <p className="text-xs text-muted-foreground">{sub.customerPhone}</p>}
+                            {sub.strategyName && <p className="text-xs text-muted-foreground mt-0.5">Strategy: {sub.strategyName}</p>}
+                          </div>
+                          <div className="flex gap-4 items-center">
+                            <span className={`w-16 text-center text-xs font-medium ${sub.ekycDone ? "text-accent" : "text-primary"}`}>
                               {sub.ekycDone ? "Yes" : "No"}
                             </span>
-                            <span className={sub.riskProfiling ? "text-accent font-medium" : "text-primary font-medium"}>
+                            <span className={`w-16 text-center text-xs font-medium ${sub.riskProfiling ? "text-accent" : "text-primary"}`}>
                               {sub.riskProfiling ? "Yes" : "No"}
                             </span>
                           </div>
@@ -188,8 +225,40 @@ export default function DashboardHome() {
             </TabsContent>
             <TabsContent value="previous">
               <Card>
-                <CardContent className="p-6 text-center text-sm text-muted-foreground">
-                  No data for previous months
+                <CardContent className="p-0">
+                  <div className="divide-y">
+                    <div className="grid grid-cols-[1fr_auto] px-4 py-2 text-xs font-medium text-muted-foreground gap-2">
+                      <span>Customer</span>
+                      <div className="flex gap-4">
+                        <span className="w-16 text-center">EKYC</span>
+                        <span className="w-16 text-center">Risk Prof.</span>
+                      </div>
+                    </div>
+                    {previousSubs.length === 0 ? (
+                      <div className="px-4 py-6 text-center text-sm text-muted-foreground">
+                        No data for previous months
+                      </div>
+                    ) : (
+                      previousSubs.slice(0, 10).map((sub) => (
+                        <div key={sub.id} className="grid grid-cols-[1fr_auto] px-4 py-2.5 text-sm gap-2">
+                          <div className="min-w-0">
+                            <p className="font-medium truncate">{sub.customerName}</p>
+                            <p className="text-xs text-muted-foreground truncate">{sub.customerEmail}</p>
+                            {sub.customerPhone && <p className="text-xs text-muted-foreground">{sub.customerPhone}</p>}
+                            {sub.strategyName && <p className="text-xs text-muted-foreground mt-0.5">Strategy: {sub.strategyName}</p>}
+                          </div>
+                          <div className="flex gap-4 items-center">
+                            <span className={`w-16 text-center text-xs font-medium ${sub.ekycDone ? "text-accent" : "text-primary"}`}>
+                              {sub.ekycDone ? "Yes" : "No"}
+                            </span>
+                            <span className={`w-16 text-center text-xs font-medium ${sub.riskProfiling ? "text-accent" : "text-primary"}`}>
+                              {sub.riskProfiling ? "Yes" : "No"}
+                            </span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>
