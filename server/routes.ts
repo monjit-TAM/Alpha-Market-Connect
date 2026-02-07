@@ -2,7 +2,7 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import session from "express-session";
 import { storage } from "./storage";
-import { scrypt, randomBytes, timingSafeEqual } from "crypto";
+import { scrypt, randomBytes, timingSafeEqual, createHmac } from "crypto";
 import { promisify } from "util";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { sendRegistrationNotification, sendUserWelcomeEmail, sendPasswordResetEmail, sendAdvisorAgreementEmail } from "./email";
@@ -12,6 +12,24 @@ import nseSymbols from "./data/nse-symbols.json";
 import { createCashfreeOrder, fetchCashfreeOrder, fetchCashfreePayments, verifyCashfreeWebhook } from "./cashfree";
 
 const scryptAsync = promisify(scrypt);
+
+function generateVerifyToken(orderId: string, userId: string): string {
+  const secret = process.env.SESSION_SECRET!;
+  const hourBucket = Math.floor(Date.now() / (1000 * 60 * 60));
+  return createHmac("sha256", secret).update(`${orderId}:${userId}:${hourBucket}`).digest("hex").slice(0, 32);
+}
+
+function validateVerifyToken(token: string, orderId: string, userId: string): boolean {
+  if (!token || token.length !== 32) return false;
+  const secret = process.env.SESSION_SECRET!;
+  const now = Math.floor(Date.now() / (1000 * 60 * 60));
+  for (let i = 0; i <= 2; i++) {
+    const bucket = now - i;
+    const expected = createHmac("sha256", secret).update(`${orderId}:${userId}:${bucket}`).digest("hex").slice(0, 32);
+    if (timingSafeEqual(Buffer.from(token), Buffer.from(expected))) return true;
+  }
+  return false;
+}
 
 async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16).toString("hex");
@@ -83,11 +101,9 @@ export async function registerRoutes(
 
   app.get("/sitemap.xml", async (_req, res) => {
     try {
-      const baseUrl = process.env.REPLIT_DEV_DOMAIN
-        ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-        : process.env.REPL_SLUG
-          ? `https://${process.env.REPL_SLUG}.replit.app`
-          : "https://alphamarket.co.in";
+      const baseUrl = process.env.SITE_DOMAIN
+        ? `https://${process.env.SITE_DOMAIN}`
+        : "https://alphamarket.co.in";
 
       const strategies = await storage.getPublishedStrategies();
       const advisors = await storage.getAdvisors();
@@ -549,9 +565,10 @@ export async function registerRoutes(
 
       const orderId = `AM_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const amount = Number(plan.amount);
+      const verifyToken = generateVerifyToken(orderId, user.id);
 
       const baseUrl = `${req.protocol}://${req.get("host")}`;
-      const returnUrl = `${baseUrl}/payment-callback?order_id=${orderId}`;
+      const returnUrl = `${baseUrl}/payment-callback?order_id=${orderId}&vt=${verifyToken}`;
 
       const cfOrder = await createCashfreeOrder({
         orderId,
@@ -585,6 +602,7 @@ export async function registerRoutes(
         paymentSessionId: cfOrder.payment_session_id,
         cfOrderId: cfOrder.cf_order_id,
         paymentId: payment.id,
+        verifyToken,
       });
     } catch (err: any) {
       console.error("Cashfree create order error:", err?.response?.data || err.message);
@@ -592,15 +610,22 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/payments/verify", requireAuth, async (req, res) => {
+  app.post("/api/payments/verify", async (req, res) => {
     try {
-      const { orderId } = req.body;
+      const { orderId, verifyToken } = req.body;
       if (!orderId) return res.status(400).send("orderId is required");
 
       const payment = await storage.getPaymentByOrderId(orderId);
-      if (!payment) return res.status(404).send("Payment not found");
+      if (!payment) {
+        console.error("Payment verify: order not found in DB:", orderId);
+        return res.status(404).send("Payment not found");
+      }
 
-      if (payment.userId !== req.session.userId) {
+      const isSessionOwner = req.session.userId === payment.userId;
+      const isTokenValid = verifyToken && validateVerifyToken(verifyToken, orderId, payment.userId);
+
+      if (!isSessionOwner && !isTokenValid) {
+        console.error("Payment verify: unauthorized - no valid session or token for order:", orderId);
         return res.status(403).send("Not authorized to verify this payment");
       }
 
@@ -608,8 +633,10 @@ export async function registerRoutes(
         return res.json({ success: true, orderStatus: "PAID", subscriptionId: payment.subscriptionId });
       }
 
+      console.log(`Payment verify: checking Cashfree for order ${orderId}, current status: ${payment.status}`);
       const cfOrder = await fetchCashfreeOrder(orderId);
       const orderStatus = cfOrder.order_status;
+      console.log(`Payment verify: Cashfree order status for ${orderId}: ${orderStatus}`);
 
       if (orderStatus === "PAID" && payment.status !== "PAID") {
         let paymentMethod: string | null = null;
@@ -623,7 +650,9 @@ export async function registerRoutes(
               cfPaymentId = successPayment.cf_payment_id?.toString() || null;
             }
           }
-        } catch {}
+        } catch (payErr: any) {
+          console.error("Payment verify: error fetching CF payments:", payErr?.message);
+        }
 
         const freshPayment = await storage.getPaymentByOrderId(orderId);
         if (freshPayment && freshPayment.subscriptionId) {
@@ -648,6 +677,7 @@ export async function registerRoutes(
         });
 
         await storage.updatePayment(payment.id, { subscriptionId: sub.id });
+        console.log(`Payment verify: subscription created for order ${orderId}, sub: ${sub.id}`);
 
         res.json({ success: true, orderStatus: "PAID", subscriptionId: sub.id });
       } else if (orderStatus === "PAID") {
@@ -657,8 +687,8 @@ export async function registerRoutes(
         res.json({ success: false, orderStatus });
       }
     } catch (err: any) {
-      console.error("Cashfree verify error:", err?.response?.data || err.message);
-      res.status(500).json({ error: err.message });
+      console.error("Cashfree verify error:", err?.response?.data || err.message, err?.stack);
+      res.status(500).json({ error: "Payment verification failed. Please contact support." });
     }
   });
 

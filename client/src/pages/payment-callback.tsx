@@ -13,6 +13,7 @@ export default function PaymentCallbackPage() {
   const searchString = useSearch();
   const params = new URLSearchParams(searchString);
   const orderId = params.get("order_id");
+  const verifyToken = params.get("vt");
 
   const [status, setStatus] = useState<"loading" | "success" | "failed">("loading");
   const [strategyId, setStrategyId] = useState<string | null>(null);
@@ -24,28 +25,50 @@ export default function PaymentCallbackPage() {
     }
 
     let attempts = 0;
-    const maxAttempts = 5;
+    const maxAttempts = 8;
+    let cancelled = false;
 
     const verify = async () => {
+      if (cancelled) return;
       try {
-        const res = await apiRequest("POST", "/api/payments/verify", { orderId });
+        const res = await fetch("/api/payments/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ orderId, verifyToken }),
+        });
+
+        if (!res.ok) {
+          console.error("Payment verify HTTP error:", res.status, await res.text());
+          if (attempts < maxAttempts) {
+            attempts++;
+            setTimeout(verify, 3000);
+          } else {
+            setStatus("failed");
+          }
+          return;
+        }
+
         const data = await res.json();
 
         if (data.success && data.orderStatus === "PAID") {
           setStatus("success");
-          const paymentRes = await fetch(`/api/payments/history`, { credentials: "include" });
-          if (paymentRes.ok) {
-            const payments = await paymentRes.json();
-            const match = payments.find((p: any) => p.orderId === orderId);
-            if (match?.strategyId) setStrategyId(match.strategyId);
-          }
-        } else if (data.orderStatus === "ACTIVE" && attempts < maxAttempts) {
+          try {
+            const paymentRes = await fetch(`/api/payments/history`, { credentials: "include" });
+            if (paymentRes.ok) {
+              const payments = await paymentRes.json();
+              const match = payments.find((p: any) => p.orderId === orderId);
+              if (match?.strategyId) setStrategyId(match.strategyId);
+            }
+          } catch {}
+        } else if ((data.orderStatus === "ACTIVE" || data.orderStatus === "PENDING") && attempts < maxAttempts) {
           attempts++;
           setTimeout(verify, 3000);
         } else {
           setStatus("failed");
         }
-      } catch {
+      } catch (err) {
+        console.error("Payment verify error:", err);
         if (attempts < maxAttempts) {
           attempts++;
           setTimeout(verify, 3000);
@@ -55,7 +78,11 @@ export default function PaymentCallbackPage() {
       }
     };
 
-    verify();
+    const timer = setTimeout(verify, 1500);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [orderId]);
 
   return (

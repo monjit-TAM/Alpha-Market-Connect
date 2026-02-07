@@ -40,3 +40,8 @@ waitForPort = 5000
 
 [agent]
 integrations = ["javascript_object_storage:2.0.0", "sendgrid:1.0.0"]
+
+[userenv]
+
+[userenv.production]
+SITE_DOMAIN = "alphamarket.co.in"

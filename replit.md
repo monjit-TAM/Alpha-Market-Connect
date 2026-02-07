@@ -28,9 +28,11 @@ AlphaMarket is a SaaS marketplace platform connecting SEBI-registered Indian adv
 - Advisor dashboard: Payments section with total revenue, successful/pending counts, transaction history table
 - Subscription is only created AFTER successful payment (not before)
 - Webhook handler processes PAYMENT_SUCCESS_WEBHOOK and ORDER_PAID events with idempotent subscription creation
-- Security: Payment verify endpoint enforces ownership (req.session.userId === payment.userId)
+- Security: Payment verify uses dual-auth (session OR HMAC verify token) to handle session-loss during Cashfree redirect
+- Security: Verify token is time-limited (3-hour HMAC with hour-bucket), timing-safe comparison, length-validated
 - Security: Webhook signature and timestamp headers are mandatory (rejects if missing)
 - Security: Idempotent subscription creation with double-check to prevent race conditions between webhook and verify endpoint
+- Sitemap uses SITE_DOMAIN env var (production: alphamarket.co.in) for correct URLs
 - Added Draft tab in strategy management: Active | Closed | Draft tabs for managing call/position lifecycle
 - Draft/Watchlist items saved privately with Publish button to go live when ready
 - Added `publishMode` column to calls table (draft/watchlist/live) for parity with positions
