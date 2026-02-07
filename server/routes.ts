@@ -864,16 +864,38 @@ export async function registerRoutes(
         res.send(csv);
       } else if (type === "Customer Acquisition Report") {
         const subs = await storage.getSubscriptions(req.session.userId!);
-        let csv = "Subscriber,Plan,EKYC Done,Risk Profiling,Status,Date\n";
+        let csv = "Subscriber,Plan,EKYC Done,Risk Profiling,Status,Subscription Date,Subscription Time,Start Date,End Date\n";
         for (const s of subs) {
-          csv += `"${s.userId}","${s.planId}","${s.ekycDone}","${s.riskProfiling}","${s.status}","${s.createdAt || ""}"\n`;
+          const subDt = s.createdAt;
+          const subDate = subDt ? new Date(subDt).toLocaleDateString("en-IN") : "";
+          const subTime = subDt ? new Date(subDt).toLocaleTimeString("en-IN") : "";
+          const startDate = subDt ? new Date(subDt).toLocaleDateString("en-IN") : "";
+          const plan = await storage.getPlan(s.planId);
+          const durationDays = plan?.durationDays || 30;
+          const endDt = subDt ? new Date(new Date(subDt).getTime() + durationDays * 86400000) : null;
+          const endDate = endDt ? endDt.toLocaleDateString("en-IN") : "";
+          csv += `"${s.userId}","${plan?.name || s.planId}","${s.ekycDone ? "Yes" : "No"}","${s.riskProfiling ? "Yes" : "No"}","${s.status}","${subDate}","${subTime}","${startDate}","${endDate}"\n`;
         }
         res.send(csv);
       } else if (type === "Financial Report") {
+        const subs = await storage.getSubscriptions(req.session.userId!);
         const pls = await storage.getPlans(req.session.userId!);
-        let csv = "Plan,Code,Amount,Duration Days\n";
-        for (const p of pls) {
-          csv += `"${p.name}","${p.code}","${p.amount}","${p.durationDays || ""}"\n`;
+        let csv = "Plan,Code,Amount,Duration Days,Subscriber,Payment Date,Payment Time,Start Date,End Date,Status\n";
+        for (const s of subs) {
+          const plan = pls.find((p) => p.id === s.planId);
+          const subDt = s.createdAt;
+          const payDate = subDt ? new Date(subDt).toLocaleDateString("en-IN") : "";
+          const payTime = subDt ? new Date(subDt).toLocaleTimeString("en-IN") : "";
+          const startDate = subDt ? new Date(subDt).toLocaleDateString("en-IN") : "";
+          const durationDays = plan?.durationDays || 30;
+          const endDt = subDt ? new Date(new Date(subDt).getTime() + durationDays * 86400000) : null;
+          const endDate = endDt ? endDt.toLocaleDateString("en-IN") : "";
+          csv += `"${plan?.name || s.planId}","${plan?.code || ""}","${plan?.amount || ""}","${durationDays}","${s.userId}","${payDate}","${payTime}","${startDate}","${endDate}","${s.status}"\n`;
+        }
+        if (subs.length === 0) {
+          for (const p of pls) {
+            csv += `"${p.name}","${p.code}","${p.amount}","${p.durationDays || ""}","","","","","",""\n`;
+          }
         }
         res.send(csv);
       } else {

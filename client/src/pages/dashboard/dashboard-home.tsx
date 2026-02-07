@@ -6,8 +6,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { IndianRupee, Users, TrendingUp, FileText, Plus, Download } from "lucide-react";
 import { Link } from "wouter";
 import { useAuth } from "@/lib/auth";
-import type { Strategy, Subscription, Content as ContentType } from "@shared/schema";
+import type { Strategy, Call, Subscription, Content as ContentType } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
 
 export default function DashboardHome() {
   const { user } = useAuth();
@@ -26,6 +27,13 @@ export default function DashboardHome() {
 
   const monthlyRevenue = (subscribers || []).length * 999;
   const ytdRevenue = monthlyRevenue * 6;
+
+  const chartData = (strategies || []).map((s) => ({
+    name: s.name.length > 12 ? s.name.slice(0, 12) + "..." : s.name,
+    fullName: s.name,
+    cagr: Number(s.cagr || 0),
+    recs: Number(s.totalRecommendations || 0),
+  }));
 
   return (
     <div className="space-y-6 max-w-5xl">
@@ -54,11 +62,55 @@ export default function DashboardHome() {
           <div className="space-y-2">
             <h3 className="text-sm font-medium text-muted-foreground">Strategy Performance</h3>
             <Card>
-              <CardContent className="p-4 h-40 flex items-center justify-center text-muted-foreground text-sm">
-                <div className="text-center space-y-1">
-                  <TrendingUp className="w-8 h-8 mx-auto text-muted-foreground/50" />
-                  <p>Performance chart will appear here</p>
-                </div>
+              <CardContent className="p-4">
+                {!strategies || strategies.length === 0 ? (
+                  <div className="h-40 flex items-center justify-center text-muted-foreground text-sm">
+                    <div className="text-center space-y-1">
+                      <TrendingUp className="w-8 h-8 mx-auto text-muted-foreground/50" />
+                      <p>Create strategies to see performance</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="h-48" data-testid="chart-strategy-performance">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={chartData} margin={{ top: 5, right: 5, left: -10, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                        <XAxis
+                          dataKey="name"
+                          tick={{ fontSize: 11 }}
+                          interval={0}
+                          angle={-20}
+                          textAnchor="end"
+                          height={50}
+                        />
+                        <YAxis tick={{ fontSize: 11 }} />
+                        <Tooltip
+                          content={({ active, payload }) => {
+                            if (active && payload && payload.length) {
+                              const data = payload[0].payload;
+                              return (
+                                <div className="bg-popover text-popover-foreground border rounded-md p-2 shadow-md text-xs space-y-0.5">
+                                  <p className="font-medium">{data.fullName}</p>
+                                  <p>CAGR: {data.cagr}%</p>
+                                  <p>Recommendations: {data.recs}</p>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
+                        />
+                        <Bar dataKey="cagr" radius={[4, 4, 0, 0]} maxBarSize={40}>
+                          {chartData.map((entry, index) => (
+                            <Cell
+                              key={`cell-${index}`}
+                              fill={entry.cagr >= 0 ? "hsl(145 45% 42%)" : "hsl(10 72% 48%)"}
+                            />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>

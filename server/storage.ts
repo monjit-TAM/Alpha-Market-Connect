@@ -47,6 +47,7 @@ export interface IStorage {
   getAllActivePositions(): Promise<(Position & { strategy?: Strategy })[]>;
 
   getPlans(advisorId: string): Promise<Plan[]>;
+  getPlan(id: string): Promise<Plan | undefined>;
   createPlan(data: InsertPlan): Promise<Plan>;
   deletePlan(id: string): Promise<void>;
 
@@ -253,6 +254,11 @@ export class DatabaseStorage implements IStorage {
 
   async getPlans(advisorId: string): Promise<Plan[]> {
     return db.select().from(plans).where(eq(plans.advisorId, advisorId)).orderBy(desc(plans.createdAt));
+  }
+
+  async getPlan(id: string): Promise<Plan | undefined> {
+    const [p] = await db.select().from(plans).where(eq(plans.id, id));
+    return p;
   }
 
   async createPlan(data: InsertPlan): Promise<Plan> {
