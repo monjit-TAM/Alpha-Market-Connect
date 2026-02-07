@@ -16,8 +16,21 @@ AlphaMarket is a SaaS marketplace platform connecting SEBI-registered Indian adv
 - **Backend**: Express.js + TypeScript, express-session
 - **Database**: PostgreSQL (Neon) with Drizzle ORM
 - **Auth**: Session-based with scrypt password hashing
+- **Payments**: Cashfree Payment Gateway (Production mode, cashfree-pg SDK v5)
 
 ## Recent Changes
+- Integrated Cashfree Payment Gateway for subscription payments
+- Payment flow: Plan Selection → Create Order (Cashfree API) → Cashfree JS SDK Checkout → Callback Verification → Subscription Activation
+- Added `payments` table tracking order_id, cf_order_id, payment_session_id, status, payment_method, cf_payment_id
+- Backend routes: POST /api/payments/create-order, POST /api/payments/verify, POST /api/webhooks/cashfree
+- GET /api/payments/history (user), GET /api/advisor/payments (advisor with enriched customer/strategy/plan names)
+- Payment callback page (/payment-callback) with auto-verification polling and success/failure states
+- Advisor dashboard: Payments section with total revenue, successful/pending counts, transaction history table
+- Subscription is only created AFTER successful payment (not before)
+- Webhook handler processes PAYMENT_SUCCESS_WEBHOOK and ORDER_PAID events with idempotent subscription creation
+- Security: Payment verify endpoint enforces ownership (req.session.userId === payment.userId)
+- Security: Webhook signature and timestamp headers are mandatory (rejects if missing)
+- Security: Idempotent subscription creation with double-check to prevent race conditions between webhook and verify endpoint
 - Added Draft tab in strategy management: Active | Closed | Draft tabs for managing call/position lifecycle
 - Draft/Watchlist items saved privately with Publish button to go live when ready
 - Added `publishMode` column to calls table (draft/watchlist/live) for parity with positions
@@ -115,7 +128,7 @@ client/src/pages/admin/admin-strategies.tsx - Strategy management (edit/delete a
 ```
 
 ## Database Tables
-users, strategies, calls, positions, plans, subscriptions, content, scores
+users, strategies, calls, positions, plans, subscriptions, content, scores, payments
 
 ## Design
 - Primary: warm red (hsl 10 72% 48%)

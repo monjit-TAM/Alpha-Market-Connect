@@ -21,6 +21,7 @@ import ResetPasswordPage from "@/pages/reset-password";
 import SubscribePage from "@/pages/subscribe";
 import PaymentPage from "@/pages/payment";
 import AgreementPage from "@/pages/agreements";
+import PaymentCallbackPage from "@/pages/payment-callback";
 
 function Router() {
   return (
@@ -40,6 +41,7 @@ function Router() {
       <Route path="/learn" component={LearnPage} />
       <Route path="/content/:id" component={ContentDetail} />
       <Route path="/agreements/:type" component={AgreementPage} />
+      <Route path="/payment-callback" component={PaymentCallbackPage} />
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/dashboard/:rest*" component={Dashboard} />
       <Route path="/admin" component={AdminDashboard} />

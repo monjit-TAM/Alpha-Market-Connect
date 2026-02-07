@@ -5,13 +5,33 @@ import { Button } from "@/components/ui/button";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Lock, IndianRupee, ShieldCheck, CreditCard } from "lucide-react";
+import { ArrowLeft, IndianRupee, ShieldCheck, CreditCard, Loader2 } from "lucide-react";
 import type { Strategy, Plan, User } from "@shared/schema";
 import { useAuth } from "@/lib/auth";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
+
+declare global {
+  interface Window {
+    Cashfree: any;
+  }
+}
+
+function loadCashfreeScript(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (window.Cashfree) {
+      resolve();
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://sdk.cashfree.com/js/v3/cashfree.js";
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Failed to load Cashfree SDK"));
+    document.head.appendChild(script);
+  });
+}
 
 export default function PaymentPage() {
   const { id } = useParams<{ id: string }>();
@@ -22,6 +42,7 @@ export default function PaymentPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [processing, setProcessing] = useState(false);
+  const [sdkReady, setSdkReady] = useState(false);
 
   const { data: strategy, isLoading: strategyLoading } = useQuery<Strategy & { advisor?: User }>({
     queryKey: ["/api/strategies", id],
@@ -32,7 +53,72 @@ export default function PaymentPage() {
     enabled: !!id,
   });
 
+  useEffect(() => {
+    loadCashfreeScript()
+      .then(() => setSdkReady(true))
+      .catch(() => {
+        console.error("Failed to load Cashfree SDK");
+      });
+  }, []);
+
   const isLoading = strategyLoading || plansLoading;
+
+  const formatDuration = useCallback((days: number | null | undefined) => {
+    if (!days) return "Unlimited";
+    if (days === 30) return "1 Month";
+    if (days === 90) return "3 Months";
+    if (days === 180) return "6 Months";
+    if (days === 365) return "1 Year";
+    return `${days} Days`;
+  }, []);
+
+  const handlePayment = async () => {
+    if (!user) {
+      toast({ title: "Please sign in to subscribe", variant: "destructive" });
+      navigate("/login");
+      return;
+    }
+    if (!sdkReady) {
+      toast({ title: "Payment system is loading, please wait...", variant: "destructive" });
+      return;
+    }
+
+    setProcessing(true);
+    try {
+      const res = await apiRequest("POST", "/api/payments/create-order", {
+        strategyId: id,
+        planId,
+      });
+      const data = await res.json();
+
+      if (!data.paymentSessionId) {
+        throw new Error("Failed to create payment order");
+      }
+
+      const cashfree = window.Cashfree({ mode: "production" });
+
+      const result = await cashfree.checkout({
+        paymentSessionId: data.paymentSessionId,
+        redirectTarget: "_self",
+      });
+
+      if (result?.error) {
+        toast({
+          title: "Payment was cancelled or failed",
+          description: result.error.message || "Please try again",
+          variant: "destructive",
+        });
+      }
+    } catch (err: any) {
+      toast({
+        title: "Payment failed",
+        description: err.message || "Something went wrong",
+        variant: "destructive",
+      });
+    } finally {
+      setProcessing(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -52,34 +138,6 @@ export default function PaymentPage() {
   if (!selectedPlan) return null;
 
   const advisorName = strategy.advisor?.companyName || strategy.advisor?.username || "Advisor";
-
-  const formatDuration = (days: number | null | undefined) => {
-    if (!days) return "Unlimited";
-    if (days === 30) return "1 Month";
-    if (days === 90) return "3 Months";
-    if (days === 180) return "6 Months";
-    if (days === 365) return "1 Year";
-    return `${days} Days`;
-  };
-
-  const handlePayment = async () => {
-    if (!user) {
-      toast({ title: "Please sign in to subscribe", variant: "destructive" });
-      navigate("/login");
-      return;
-    }
-    setProcessing(true);
-    try {
-      await apiRequest("POST", `/api/strategies/${id}/subscribe`, { planId });
-      toast({ title: "Subscription successful!", description: "You have been subscribed to this strategy." });
-      queryClient.invalidateQueries({ queryKey: ["/api/strategies", id] });
-      navigate(`/strategies/${id}`);
-    } catch (err: any) {
-      toast({ title: "Subscription failed", description: err.message, variant: "destructive" });
-    } finally {
-      setProcessing(false);
-    }
-  };
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -142,20 +200,14 @@ export default function PaymentPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-center py-8 space-y-4">
-              <div className="w-16 h-16 rounded-full bg-muted/50 flex items-center justify-center mx-auto">
-                <Lock className="w-8 h-8 text-muted-foreground" />
-              </div>
-              <div className="space-y-2">
-                <p className="text-sm font-medium" data-testid="text-payment-coming-soon">Payment Gateway Integration Coming Soon</p>
-                <p className="text-xs text-muted-foreground max-w-sm mx-auto">
-                  The payment gateway will be integrated shortly. For now, you can complete the subscription to access this strategy.
-                </p>
-              </div>
+            <div className="text-center py-6 space-y-3">
               <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
                 <ShieldCheck className="w-3.5 h-3.5" />
-                <span>Secure payment powered by AlphaMarket</span>
+                <span>Secure payment powered by Cashfree</span>
               </div>
+              <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                You'll be redirected to Cashfree's secure payment page to complete the transaction. All major UPI apps, cards, net banking, and wallets are supported.
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -168,10 +220,17 @@ export default function PaymentPage() {
           </Link>
           <Button
             onClick={handlePayment}
-            disabled={processing}
+            disabled={processing || !sdkReady}
             data-testid="button-confirm-payment"
           >
-            {processing ? "Processing..." : `Pay \u20B9${Number(selectedPlan.amount).toLocaleString("en-IN")} & Subscribe`}
+            {processing ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Processing...
+              </>
+            ) : (
+              `Pay \u20B9${Number(selectedPlan.amount).toLocaleString("en-IN")} & Subscribe`
+            )}
           </Button>
         </div>
       </div>

@@ -9,6 +9,7 @@ import { sendRegistrationNotification, sendUserWelcomeEmail, sendPasswordResetEm
 import { getLiveQuote, getLivePrices, setGrowwAccessToken, getGrowwTokenStatus, getOptionChainExpiries, getOptionChain } from "./groww";
 import type { Plan } from "@shared/schema";
 import nseSymbols from "./data/nse-symbols.json";
+import { createCashfreeOrder, fetchCashfreeOrder, fetchCashfreePayments, verifyCashfreeWebhook } from "./cashfree";
 
 const scryptAsync = promisify(scrypt);
 
@@ -465,6 +466,229 @@ export async function registerRoutes(
       res.status(500).send(err.message);
     }
   });
+
+  // ==================== Payment Routes (Cashfree) ====================
+
+  app.post("/api/payments/create-order", requireAuth, async (req, res) => {
+    try {
+      const { strategyId, planId } = req.body;
+      if (!strategyId || !planId) return res.status(400).send("strategyId and planId are required");
+
+      const strategy = await storage.getStrategy(strategyId);
+      if (!strategy) return res.status(404).send("Strategy not found");
+
+      const advisorPlans = await storage.getPlans(strategy.advisorId);
+      const plan = advisorPlans.find((p: Plan) => p.id === planId);
+      if (!plan) return res.status(404).send("Plan not found");
+
+      const user = await storage.getUser(req.session.userId!);
+      if (!user) return res.status(401).send("User not found");
+
+      const orderId = `AM_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const amount = Number(plan.amount);
+
+      const baseUrl = `${req.protocol}://${req.get("host")}`;
+      const returnUrl = `${baseUrl}/payment-callback?order_id=${orderId}`;
+
+      const cfOrder = await createCashfreeOrder({
+        orderId,
+        amount,
+        customerName: user.companyName || user.username,
+        customerEmail: user.email,
+        customerPhone: user.phone || "9999999999",
+        customerId: user.id,
+        returnUrl,
+      });
+
+      const payment = await storage.createPayment({
+        orderId,
+        userId: user.id,
+        strategyId: strategy.id,
+        planId: plan.id,
+        advisorId: strategy.advisorId,
+        amount: amount.toString(),
+        currency: "INR",
+        status: "PENDING",
+        cfOrderId: cfOrder.cf_order_id?.toString() || null,
+        paymentSessionId: cfOrder.payment_session_id || null,
+        paymentMethod: null,
+        cfPaymentId: null,
+        subscriptionId: null,
+        paidAt: null,
+      });
+
+      res.json({
+        orderId,
+        paymentSessionId: cfOrder.payment_session_id,
+        cfOrderId: cfOrder.cf_order_id,
+        paymentId: payment.id,
+      });
+    } catch (err: any) {
+      console.error("Cashfree create order error:", err?.response?.data || err.message);
+      res.status(500).json({ error: err?.response?.data?.message || err.message });
+    }
+  });
+
+  app.post("/api/payments/verify", requireAuth, async (req, res) => {
+    try {
+      const { orderId } = req.body;
+      if (!orderId) return res.status(400).send("orderId is required");
+
+      const payment = await storage.getPaymentByOrderId(orderId);
+      if (!payment) return res.status(404).send("Payment not found");
+
+      if (payment.userId !== req.session.userId) {
+        return res.status(403).send("Not authorized to verify this payment");
+      }
+
+      if (payment.status === "PAID" && payment.subscriptionId) {
+        return res.json({ success: true, orderStatus: "PAID", subscriptionId: payment.subscriptionId });
+      }
+
+      const cfOrder = await fetchCashfreeOrder(orderId);
+      const orderStatus = cfOrder.order_status;
+
+      if (orderStatus === "PAID" && payment.status !== "PAID") {
+        let paymentMethod: string | null = null;
+        let cfPaymentId: string | null = null;
+        try {
+          const cfPayments = await fetchCashfreePayments(orderId);
+          if (cfPayments && cfPayments.length > 0) {
+            const successPayment = cfPayments.find((p: any) => p.payment_status === "SUCCESS");
+            if (successPayment) {
+              paymentMethod = successPayment.payment_group || null;
+              cfPaymentId = successPayment.cf_payment_id?.toString() || null;
+            }
+          }
+        } catch {}
+
+        const freshPayment = await storage.getPaymentByOrderId(orderId);
+        if (freshPayment && freshPayment.subscriptionId) {
+          return res.json({ success: true, orderStatus: "PAID", subscriptionId: freshPayment.subscriptionId });
+        }
+
+        await storage.updatePayment(payment.id, {
+          status: "PAID",
+          paymentMethod,
+          cfPaymentId,
+          paidAt: new Date(),
+        });
+
+        const sub = await storage.createSubscription({
+          planId: payment.planId!,
+          strategyId: payment.strategyId!,
+          userId: payment.userId,
+          advisorId: payment.advisorId!,
+          status: "active",
+          ekycDone: false,
+          riskProfiling: false,
+        });
+
+        await storage.updatePayment(payment.id, { subscriptionId: sub.id });
+
+        res.json({ success: true, orderStatus: "PAID", subscriptionId: sub.id });
+      } else if (orderStatus === "PAID") {
+        res.json({ success: true, orderStatus: "PAID", subscriptionId: payment.subscriptionId });
+      } else {
+        await storage.updatePayment(payment.id, { status: orderStatus });
+        res.json({ success: false, orderStatus });
+      }
+    } catch (err: any) {
+      console.error("Cashfree verify error:", err?.response?.data || err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/webhooks/cashfree", async (req: any, res) => {
+    try {
+      const signature = req.headers["x-webhook-signature"] as string;
+      const timestamp = req.headers["x-webhook-timestamp"] as string;
+
+      if (!signature || !timestamp) {
+        console.error("Cashfree webhook: missing signature or timestamp headers");
+        return res.status(400).send("Missing webhook signature");
+      }
+
+      const rawBody = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
+      const valid = verifyCashfreeWebhook(signature, rawBody, timestamp);
+      if (!valid) {
+        console.error("Cashfree webhook: invalid signature");
+        return res.status(400).send("Invalid webhook signature");
+      }
+
+      const webhookData = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+      const eventType = webhookData?.type;
+      const orderData = webhookData?.data?.order;
+      const paymentData = webhookData?.data?.payment;
+
+      if (eventType === "PAYMENT_SUCCESS_WEBHOOK" || eventType === "ORDER_PAID") {
+        const orderId = orderData?.order_id;
+        if (orderId) {
+          const payment = await storage.getPaymentByOrderId(orderId);
+          if (payment && payment.status !== "PAID" && !payment.subscriptionId) {
+            await storage.updatePayment(payment.id, {
+              status: "PAID",
+              paymentMethod: paymentData?.payment_group || null,
+              cfPaymentId: paymentData?.cf_payment_id?.toString() || null,
+              paidAt: new Date(),
+            });
+
+            const freshPayment = await storage.getPaymentByOrderId(orderId);
+            if (freshPayment && !freshPayment.subscriptionId) {
+              const sub = await storage.createSubscription({
+                planId: payment.planId!,
+                strategyId: payment.strategyId!,
+                userId: payment.userId,
+                advisorId: payment.advisorId!,
+                status: "active",
+                ekycDone: false,
+                riskProfiling: false,
+              });
+
+              await storage.updatePayment(payment.id, { subscriptionId: sub.id });
+            }
+          }
+        }
+      }
+
+      res.status(200).send("OK");
+    } catch (err: any) {
+      console.error("Cashfree webhook error:", err.message);
+      res.status(200).send("OK");
+    }
+  });
+
+  app.get("/api/payments/history", requireAuth, async (req, res) => {
+    try {
+      const payments = await storage.getPaymentsByUser(req.session.userId!);
+      res.json(payments);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.get("/api/advisor/payments", requireAdvisor, async (req, res) => {
+    try {
+      const payments = await storage.getPaymentsByAdvisor(req.session.userId!);
+      const enriched = await Promise.all(payments.map(async (p: any) => {
+        const user = await storage.getUser(p.userId);
+        const strategy = p.strategyId ? await storage.getStrategy(p.strategyId) : null;
+        const plan = p.planId ? await storage.getPlan(p.planId) : null;
+        return {
+          ...p,
+          customerName: user?.companyName || user?.username || "Unknown",
+          customerEmail: user?.email || "",
+          strategyName: strategy?.name || "",
+          planName: plan?.name || "",
+        };
+      }));
+      res.json(enriched);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  // ==================== End Payment Routes ====================
 
   app.get("/api/live-price/:symbol", async (req, res) => {
     try {

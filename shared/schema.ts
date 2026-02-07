@@ -143,6 +143,25 @@ export const scores = pgTable("scores", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const payments = pgTable("payments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  orderId: text("order_id").notNull().unique(),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  strategyId: varchar("strategy_id").references(() => strategies.id),
+  planId: varchar("plan_id").references(() => plans.id),
+  advisorId: varchar("advisor_id").references(() => users.id),
+  amount: numeric("amount").notNull(),
+  currency: text("currency").default("INR"),
+  status: text("status").notNull().default("PENDING"),
+  cfOrderId: text("cf_order_id"),
+  paymentSessionId: text("payment_session_id"),
+  paymentMethod: text("payment_method"),
+  cfPaymentId: text("cf_payment_id"),
+  subscriptionId: varchar("subscription_id").references(() => subscriptions.id),
+  paidAt: timestamp("paid_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const passwordResetTokens = pgTable("password_reset_tokens", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id),
@@ -160,6 +179,7 @@ export const insertPlanSchema = createInsertSchema(plans).omit({ id: true, creat
 export const insertSubscriptionSchema = createInsertSchema(subscriptions).omit({ id: true, createdAt: true });
 export const insertContentSchema = createInsertSchema(content).omit({ id: true, createdAt: true });
 export const insertScoreSchema = createInsertSchema(scores).omit({ id: true, createdAt: true });
+export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true, createdAt: true });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -177,3 +197,5 @@ export type Content = typeof content.$inferSelect;
 export type InsertContent = z.infer<typeof insertContentSchema>;
 export type Score = typeof scores.$inferSelect;
 export type InsertScore = z.infer<typeof insertScoreSchema>;
+export type Payment = typeof payments.$inferSelect;
+export type InsertPayment = z.infer<typeof insertPaymentSchema>;

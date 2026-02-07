@@ -21,6 +21,7 @@ import {
   IndianRupee,
   User,
   LogOut,
+  CreditCard,
 } from "lucide-react";
 
 import DashboardHome from "./dashboard-home";
@@ -29,11 +30,13 @@ import PlansPage from "./plans";
 import ContentPage from "./content-page";
 import AdvisorProfile from "./advisor-profile";
 import ReportsPage from "./reports";
+import PaymentsPage from "./payments-page";
 
 const sidebarItems = [
   { title: "Dashboard", icon: LayoutDashboard, path: "/dashboard" },
   { title: "Strategies", icon: ListChecks, path: "/dashboard/strategies" },
   { title: "Plans", icon: FolderKanban, path: "/dashboard/plans" },
+  { title: "Payments", icon: CreditCard, path: "/dashboard/payments" },
   { title: "Content", icon: BookOpen, path: "/dashboard/content" },
   { title: "Reports", icon: BarChart3, path: "/dashboard/reports" },
   { title: "Profile", icon: User, path: "/dashboard/profile" },
@@ -67,6 +70,7 @@ export default function Dashboard() {
   const renderPage = () => {
     if (location === "/dashboard/strategies") return <StrategyManagement />;
     if (location === "/dashboard/plans") return <PlansPage />;
+    if (location === "/dashboard/payments") return <PaymentsPage />;
     if (location === "/dashboard/content") return <ContentPage />;
     if (location === "/dashboard/reports") return <ReportsPage />;
     if (location === "/dashboard/profile") return <AdvisorProfile />;

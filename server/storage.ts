@@ -1,7 +1,7 @@
 import { db } from "./db";
 import { eq, and, desc } from "drizzle-orm";
 import {
-  users, strategies, calls, positions, plans, subscriptions, content, scores, passwordResetTokens,
+  users, strategies, calls, positions, plans, subscriptions, content, scores, passwordResetTokens, payments,
   type User, type InsertUser,
   type Strategy, type InsertStrategy,
   type Call, type InsertCall,
@@ -10,6 +10,7 @@ import {
   type Subscription, type InsertSubscription,
   type Content, type InsertContent,
   type Score, type InsertScore,
+  type Payment, type InsertPayment,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -67,6 +68,14 @@ export interface IStorage {
   getPasswordResetToken(token: string): Promise<any>;
   markTokenUsed(tokenId: string): Promise<void>;
   updateUserPassword(userId: string, hashedPassword: string): Promise<void>;
+
+  createPayment(data: InsertPayment): Promise<Payment>;
+  getPaymentByOrderId(orderId: string): Promise<Payment | undefined>;
+  updatePayment(id: string, data: Partial<Payment>): Promise<Payment>;
+  getPaymentsByUser(userId: string): Promise<Payment[]>;
+  getPaymentsByAdvisor(advisorId: string): Promise<Payment[]>;
+  getPaymentsByStrategy(strategyId: string): Promise<Payment[]>;
+  updateSubscription(id: string, data: Partial<Subscription>): Promise<Subscription>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -390,6 +399,38 @@ export class DatabaseStorage implements IStorage {
 
   async updateUserPassword(userId: string, hashedPassword: string): Promise<void> {
     await db.update(users).set({ password: hashedPassword }).where(eq(users.id, userId));
+  }
+
+  async createPayment(data: InsertPayment): Promise<Payment> {
+    const [p] = await db.insert(payments).values(data).returning();
+    return p;
+  }
+
+  async getPaymentByOrderId(orderId: string): Promise<Payment | undefined> {
+    const [p] = await db.select().from(payments).where(eq(payments.orderId, orderId));
+    return p;
+  }
+
+  async updatePayment(id: string, data: Partial<Payment>): Promise<Payment> {
+    const [p] = await db.update(payments).set(data).where(eq(payments.id, id)).returning();
+    return p;
+  }
+
+  async getPaymentsByUser(userId: string): Promise<Payment[]> {
+    return db.select().from(payments).where(eq(payments.userId, userId)).orderBy(desc(payments.createdAt));
+  }
+
+  async getPaymentsByAdvisor(advisorId: string): Promise<Payment[]> {
+    return db.select().from(payments).where(eq(payments.advisorId, advisorId)).orderBy(desc(payments.createdAt));
+  }
+
+  async getPaymentsByStrategy(strategyId: string): Promise<Payment[]> {
+    return db.select().from(payments).where(eq(payments.strategyId, strategyId)).orderBy(desc(payments.createdAt));
+  }
+
+  async updateSubscription(id: string, data: Partial<Subscription>): Promise<Subscription> {
+    const [s] = await db.update(subscriptions).set(data).where(eq(subscriptions.id, id)).returning();
+    return s;
   }
 }
 
