@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, MoreVertical, Loader2, Pencil, ChevronDown, ChevronRight, X, Search, ArrowUp, ArrowDown } from "lucide-react";
+import { Plus, MoreVertical, Loader2, Pencil, ChevronDown, ChevronRight, X, Search, ArrowUp, ArrowDown, Send } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -403,10 +403,12 @@ function StrategyCallsPanel({ strategy }: { strategy: Strategy }) {
     },
   });
 
-  const activeCalls = calls?.filter((c) => c.status === "Active") || [];
+  const activeCalls = calls?.filter((c) => c.status === "Active" && ((c as any).publishMode === "live" || (c.isPublished && !(c as any).publishMode))) || [];
   const closedCalls = calls?.filter((c) => c.status === "Closed") || [];
-  const activePositions = positions?.filter((p) => p.status === "Active") || [];
+  const draftCalls = calls?.filter((c) => c.status === "Active" && !c.isPublished && ((c as any).publishMode === "draft" || (c as any).publishMode === "watchlist" || !(c as any).publishMode)) || [];
+  const activePositions = positions?.filter((p) => p.status === "Active" && ((p as any).publishMode === "live" || (p.isPublished && !(p as any).publishMode))) || [];
   const closedPositions = positions?.filter((p) => p.status === "Closed") || [];
+  const draftPositions = positions?.filter((p) => p.status === "Active" && ((p as any).publishMode === "draft" || (p as any).publishMode === "watchlist" || (!(p as any).publishMode && !p.isPublished))) || [];
 
   const activeSymbols = [
     ...activeCalls.map((c) => ({ symbol: c.stockName, strategyType: strategy.type })),
@@ -483,7 +485,7 @@ function StrategyCallsPanel({ strategy }: { strategy: Strategy }) {
 
   return (
     <div className="space-y-3">
-      <Tabs defaultValue="active">
+      <Tabs defaultValue={draftCalls.length + draftPositions.length > 0 ? "draft" : "active"}>
         <TabsList>
           <TabsTrigger value="active" data-testid="tab-active-calls">
             Active ({activeCalls.length + activePositions.length})
@@ -491,11 +493,14 @@ function StrategyCallsPanel({ strategy }: { strategy: Strategy }) {
           <TabsTrigger value="closed" data-testid="tab-closed-calls">
             Closed ({closedCalls.length + closedPositions.length})
           </TabsTrigger>
+          <TabsTrigger value="draft" data-testid="tab-draft-calls">
+            Draft ({draftCalls.length + draftPositions.length})
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="active" className="mt-3">
           {activeCalls.length === 0 && activePositions.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-2">No active calls</p>
+            <p className="text-sm text-muted-foreground py-2">No active published calls</p>
           ) : (
             <div className="space-y-2">
               {activeCalls.map((call) => (
@@ -532,6 +537,33 @@ function StrategyCallsPanel({ strategy }: { strategy: Strategy }) {
               ))}
               {closedPositions.map((pos) => (
                 <PositionRow key={pos.id} position={pos} strategyId={strategy.id} />
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="draft" className="mt-3">
+          {draftCalls.length === 0 && draftPositions.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-2">No draft or watchlist items. Use the actions menu to add calls or positions as drafts.</p>
+          ) : (
+            <div className="space-y-2">
+              {draftCalls.map((call) => (
+                <DraftCallRow
+                  key={call.id}
+                  call={call}
+                  onEdit={() => setEditingCall(call)}
+                  onClose={() => setClosingCall(call)}
+                  strategyId={strategy.id}
+                />
+              ))}
+              {draftPositions.map((pos) => (
+                <DraftPositionRow
+                  key={pos.id}
+                  position={pos}
+                  onEdit={() => setEditingPosition(pos)}
+                  onClose={() => setClosingPosition(pos)}
+                  strategyId={strategy.id}
+                />
               ))}
             </div>
           )}
@@ -765,6 +797,179 @@ function PositionRow({
   );
 }
 
+function DraftCallRow({
+  call,
+  onEdit,
+  onClose,
+  strategyId,
+}: {
+  call: Call;
+  onEdit?: () => void;
+  onClose?: () => void;
+  strategyId: string;
+}) {
+  const { toast } = useToast();
+  const publishMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/calls/${call.id}/publish`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/advisor/strategies", strategyId, "calls"] });
+      toast({ title: "Call published successfully" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const publishMode = (call as any).publishMode || "draft";
+
+  return (
+    <div
+      className="flex items-center gap-3 p-3 rounded-md border text-sm flex-wrap"
+      data-testid={`draft-call-row-${call.id}`}
+    >
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-medium">{call.stockName}</span>
+          <Badge variant={call.action === "Buy" ? "default" : "secondary"}>
+            {call.action}
+          </Badge>
+          <Badge variant="secondary">{publishMode === "watchlist" ? "Watchlist" : "Draft"}</Badge>
+        </div>
+        <div className="text-xs text-muted-foreground mt-1 flex items-center gap-3 flex-wrap">
+          {call.buyRangeStart && <span>Entry: {Number(call.buyRangeStart).toFixed(2)}{call.buyRangeEnd ? ` - ${Number(call.buyRangeEnd).toFixed(2)}` : ""}</span>}
+          {call.targetPrice && <span>Target: {Number(call.targetPrice).toFixed(2)}</span>}
+          {call.stopLoss && <span>SL: {Number(call.stopLoss).toFixed(2)}</span>}
+          <span>
+            {call.createdAt
+              ? `${new Date(call.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })} ${new Date(call.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`
+              : ""}
+          </span>
+        </div>
+        {call.rationale && (
+          <p className="text-xs text-muted-foreground mt-1 italic">{call.rationale}</p>
+        )}
+      </div>
+      <div className="flex items-center gap-1">
+        {!call.rationale?.trim() && (
+          <span className="text-xs text-muted-foreground mr-1">Add rationale to publish</span>
+        )}
+        <Button
+          variant="default"
+          size="sm"
+          onClick={() => publishMutation.mutate()}
+          disabled={publishMutation.isPending || !call.rationale?.trim()}
+          data-testid={`button-publish-call-${call.id}`}
+        >
+          {publishMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4 mr-1" />}
+          Publish
+        </Button>
+        {onEdit && (
+          <Button variant="ghost" size="icon" onClick={onEdit} data-testid={`button-edit-draft-call-${call.id}`}>
+            <Pencil className="w-4 h-4" />
+          </Button>
+        )}
+        {onClose && (
+          <Button variant="ghost" size="icon" onClick={onClose} data-testid={`button-delete-draft-call-${call.id}`}>
+            <X className="w-4 h-4" />
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DraftPositionRow({
+  position,
+  onEdit,
+  onClose,
+  strategyId,
+}: {
+  position: Position;
+  onEdit?: () => void;
+  onClose?: () => void;
+  strategyId: string;
+}) {
+  const { toast } = useToast();
+  const publishMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/positions/${position.id}/publish`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/advisor/strategies", strategyId, "positions"] });
+      toast({ title: "Position published successfully" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const publishMode = (position as any).publishMode || "draft";
+
+  return (
+    <div
+      className="flex items-center gap-3 p-3 rounded-md border text-sm flex-wrap"
+      data-testid={`draft-position-row-${position.id}`}
+    >
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-medium">{position.symbol || "Position"}</span>
+          <Badge variant="secondary">{position.segment}</Badge>
+          {position.callPut && <Badge variant="secondary">{position.callPut}</Badge>}
+          <Badge variant={position.buySell === "Buy" ? "default" : "secondary"}>
+            {position.buySell}
+          </Badge>
+          <Badge variant="secondary">{publishMode === "watchlist" ? "Watchlist" : "Draft"}</Badge>
+        </div>
+        <div className="text-xs text-muted-foreground mt-1 flex items-center gap-3 flex-wrap">
+          {position.strikePrice && <span>Strike: {Number(position.strikePrice).toFixed(2)}</span>}
+          {position.entryPrice && <span>Entry: {Number(position.entryPrice).toFixed(2)}</span>}
+          {position.target && <span>Target: {position.target}</span>}
+          {position.stopLoss && <span>SL: {position.stopLoss}</span>}
+          {position.lots && <span>Lots: {position.lots}</span>}
+          {position.expiry && <span>Exp: {position.expiry}</span>}
+          <span>
+            {position.createdAt
+              ? `${new Date(position.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })} ${new Date(position.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`
+              : ""}
+          </span>
+        </div>
+        {position.rationale && (
+          <p className="text-xs text-muted-foreground mt-1 italic">{position.rationale}</p>
+        )}
+      </div>
+      <div className="flex items-center gap-1">
+        {!position.rationale?.trim() && (
+          <span className="text-xs text-muted-foreground mr-1">Add rationale to publish</span>
+        )}
+        <Button
+          variant="default"
+          size="sm"
+          onClick={() => publishMutation.mutate()}
+          disabled={publishMutation.isPending || !position.rationale?.trim()}
+          data-testid={`button-publish-position-${position.id}`}
+        >
+          {publishMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4 mr-1" />}
+          Publish
+        </Button>
+        {onEdit && (
+          <Button variant="ghost" size="icon" onClick={onEdit} data-testid={`button-edit-draft-position-${position.id}`}>
+            <Pencil className="w-4 h-4" />
+          </Button>
+        )}
+        {onClose && (
+          <Button variant="ghost" size="icon" onClick={onClose} data-testid={`button-delete-draft-position-${position.id}`}>
+            <X className="w-4 h-4" />
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function EditCallDialog({
   call,
   onClose,
@@ -777,11 +982,13 @@ function EditCallDialog({
   const { toast } = useToast();
   const [targetPrice, setTargetPrice] = useState("");
   const [stopLoss, setStopLoss] = useState("");
+  const [rationale, setRationale] = useState("");
 
   useEffect(() => {
     if (call) {
       setTargetPrice(call.targetPrice || "");
       setStopLoss(call.stopLoss || "");
+      setRationale(call.rationale || "");
     }
   }, [call]);
 
@@ -827,9 +1034,19 @@ function EditCallDialog({
               data-testid="input-edit-stop-loss"
             />
           </div>
+          <div className="space-y-1.5">
+            <Label>Rationale</Label>
+            <Textarea
+              value={rationale}
+              onChange={(e) => setRationale(e.target.value)}
+              rows={3}
+              placeholder="Add rationale (required before publishing)"
+              data-testid="input-edit-rationale"
+            />
+          </div>
           <Button
             className="w-full"
-            onClick={() => mutation.mutate({ targetPrice, stopLoss })}
+            onClick={() => mutation.mutate({ targetPrice, stopLoss, rationale })}
             disabled={mutation.isPending}
             data-testid="button-save-edit-call"
           >
@@ -854,11 +1071,13 @@ function EditPositionDialog({
   const { toast } = useToast();
   const [target, setTarget] = useState("");
   const [stopLoss, setStopLoss] = useState("");
+  const [rationale, setRationale] = useState("");
 
   useEffect(() => {
     if (position) {
       setTarget(position.target || "");
       setStopLoss(position.stopLoss || "");
+      setRationale(position.rationale || "");
     }
   }, [position]);
 
@@ -900,9 +1119,19 @@ function EditPositionDialog({
               data-testid="input-edit-position-stop-loss"
             />
           </div>
+          <div className="space-y-1.5">
+            <Label>Rationale</Label>
+            <Textarea
+              value={rationale}
+              onChange={(e) => setRationale(e.target.value)}
+              rows={3}
+              placeholder="Add rationale (required before publishing)"
+              data-testid="input-edit-position-rationale"
+            />
+          </div>
           <Button
             className="w-full"
-            onClick={() => mutation.mutate({ target, stopLoss })}
+            onClick={() => mutation.mutate({ target, stopLoss, rationale })}
             disabled={mutation.isPending}
             data-testid="button-save-edit-position"
           >
@@ -1272,6 +1501,7 @@ function AddStockSheet({
     profitGoal: "",
     stopLoss: "",
     rationale: "",
+    publishMode: "draft" as "draft" | "watchlist" | "live",
     isPublished: false,
     usePercentage: false,
   });
@@ -1295,6 +1525,7 @@ function AddStockSheet({
         profitGoal: "",
         stopLoss: "",
         rationale: "",
+        publishMode: "draft",
         isPublished: false,
         usePercentage: false,
       });
@@ -1306,13 +1537,14 @@ function AddStockSheet({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (form.isPublished && !form.rationale.trim()) {
+    if (form.publishMode === "live" && !form.rationale.trim()) {
       toast({ title: "Rationale is required to publish a call", variant: "destructive" });
       return;
     }
     mutation.mutate({
       ...form,
       strategyId: strategy?.id,
+      isPublished: form.publishMode === "live",
       buyRangeStart: form.buyRangeStart || undefined,
       buyRangeEnd: form.buyRangeEnd || undefined,
       targetPrice: form.targetPrice || undefined,
@@ -1417,21 +1649,31 @@ function AddStockSheet({
               placeholder="Type your rationale for this call (required to publish)"
               data-testid="input-rationale"
             />
-            {form.isPublished && !form.rationale.trim() && (
+            {form.publishMode === "live" && !form.rationale.trim() && (
               <p className="text-xs text-destructive">Rationale is required to publish</p>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <Checkbox
-              checked={form.isPublished}
-              onCheckedChange={(v) => setForm({ ...form, isPublished: !!v })}
-              data-testid="checkbox-published"
-            />
-            <Label className="text-sm">Published</Label>
+          <div className="space-y-1.5">
+            <Label>Publish Mode</Label>
+            <Select value={form.publishMode} onValueChange={(v: "draft" | "watchlist" | "live") => setForm({ ...form, publishMode: v, isPublished: v === "live" })}>
+              <SelectTrigger data-testid="select-publish-mode">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="draft">Draft</SelectItem>
+                <SelectItem value="watchlist">Watchlist</SelectItem>
+                <SelectItem value="live">Live</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {form.publishMode === "draft" && "Saved privately, not visible to subscribers"}
+              {form.publishMode === "watchlist" && "Saved to watchlist for monitoring"}
+              {form.publishMode === "live" && "Published as an active recommendation"}
+            </p>
           </div>
           <Button type="submit" className="w-full" disabled={mutation.isPending} data-testid="button-save-stock">
             {mutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
-            Save
+            {form.publishMode === "live" ? "Publish Live" : form.publishMode === "watchlist" ? "Add to Watchlist" : "Save Draft"}
           </Button>
         </form>
       </SheetContent>

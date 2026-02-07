@@ -70,6 +70,7 @@ export const calls = pgTable("calls", {
   callDate: timestamp("call_date").defaultNow(),
   exitDate: timestamp("exit_date"),
   isPublished: boolean("is_published").default(false),
+  publishMode: text("publish_mode").default("draft"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

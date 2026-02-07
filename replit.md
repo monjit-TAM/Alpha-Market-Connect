@@ -18,6 +18,17 @@ AlphaMarket is a SaaS marketplace platform connecting SEBI-registered Indian adv
 - **Auth**: Session-based with scrypt password hashing
 
 ## Recent Changes
+- Added Draft tab in strategy management: Active | Closed | Draft tabs for managing call/position lifecycle
+- Draft/Watchlist items saved privately with Publish button to go live when ready
+- Added `publishMode` column to calls table (draft/watchlist/live) for parity with positions
+- AddStockSheet now uses publishMode dropdown (Draft/Watchlist/Live) instead of Published checkbox
+- Edit Call/Position dialogs now include Rationale field for editing before publishing
+- Added POST /api/calls/:id/publish and POST /api/positions/:id/publish routes for draft→live publishing
+- PATCH /api/calls/:id and PATCH /api/positions/:id now support updating rationale
+- Fixed zero-value display: exitPrice, gainPercent, sellPrice now use null checks instead of truthy checks
+- Added ClosePositionDialog with exit price input field for proper position closing workflow
+- Closed items display: close price, gain/loss %, and closed date/time in both strategy detail and advisor dashboard
+- Performance chart falls back to list view when all CAGR values are 0/null
 - Added content detail page (`/content/:id`) with full article view, attachment rendering (images, videos, audio, PDFs)
 - Market Outlook and Learn pages now have clickable "Read More" links to content detail view
 - Strategy detail page now fetches and displays positions (F&O) alongside calls in active/closed sections

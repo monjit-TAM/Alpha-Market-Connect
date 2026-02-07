@@ -277,18 +277,19 @@ export async function registerRoutes(
   app.get("/api/strategies/:id/positions", async (req, res) => {
     try {
       const allPositions = await storage.getPositions(req.params.id);
+      const publishedPositions = allPositions.filter((p: any) => p.publishMode === "live" || p.isPublished);
       const userId = req.session?.userId;
 
       if (userId) {
         const currentUser = await storage.getUser(userId);
         if (currentUser?.role === "admin" || currentUser?.role === "advisor") {
-          return res.json(allPositions);
+          return res.json(publishedPositions);
         }
         const sub = await storage.getUserSubscriptionForStrategy(userId, req.params.id);
-        if (sub) return res.json(allPositions);
+        if (sub) return res.json(publishedPositions);
       }
 
-      const closedOnly = allPositions.filter((p: any) => p.status === "Closed");
+      const closedOnly = publishedPositions.filter((p: any) => p.status === "Closed");
       res.json(closedOnly);
     } catch (err: any) {
       res.status(500).send(err.message);
@@ -309,7 +310,7 @@ export async function registerRoutes(
       };
       for (const s of strats) {
         const activeCalls = await storage.getCalls(s.id);
-        const activeCount = activeCalls.filter((c) => c.status === "Active").length;
+        const activeCount = activeCalls.filter((c: any) => c.status === "Active" && (c.publishMode === "live" || c.isPublished)).length;
         const horizon = (s.horizon || "").toLowerCase();
         const type = s.type;
 
@@ -396,18 +397,19 @@ export async function registerRoutes(
   app.get("/api/strategies/:id/calls", async (req, res) => {
     try {
       const allCalls = await storage.getCalls(req.params.id);
+      const publishedCalls = allCalls.filter((c: any) => c.publishMode === "live" || c.isPublished);
       const userId = req.session?.userId;
 
       if (userId) {
         const currentUser = await storage.getUser(userId);
         if (currentUser?.role === "admin" || currentUser?.role === "advisor") {
-          return res.json(allCalls);
+          return res.json(publishedCalls);
         }
         const sub = await storage.getUserSubscriptionForStrategy(userId, req.params.id);
-        if (sub) return res.json(allCalls);
+        if (sub) return res.json(publishedCalls);
       }
 
-      const closedOnly = allCalls.filter((c: any) => c.status === "Closed");
+      const closedOnly = publishedCalls.filter((c: any) => c.status === "Closed");
       res.json(closedOnly);
     } catch (err: any) {
       res.status(500).send(err.message);
@@ -541,12 +543,20 @@ export async function registerRoutes(
 
   app.post("/api/strategies/:id/calls", requireAdvisor, async (req, res) => {
     try {
-      if (req.body.isPublished && (!req.body.rationale || !req.body.rationale.trim())) {
+      const validModes = ["draft", "watchlist", "live"];
+      const publishMode = req.body.publishMode || (req.body.isPublished ? "live" : "draft");
+      if (!validModes.includes(publishMode)) {
+        return res.status(400).send("Invalid publishMode. Must be draft, watchlist, or live");
+      }
+      const isPublished = publishMode === "live";
+      if (isPublished && (!req.body.rationale || !req.body.rationale.trim())) {
         return res.status(400).send("Rationale is required to publish a call");
       }
       const c = await storage.createCall({
         ...req.body,
         strategyId: req.params.id,
+        publishMode,
+        isPublished,
       });
       res.json(c);
     } catch (err: any) {
@@ -614,10 +624,11 @@ export async function registerRoutes(
       if (call.status !== "Active") {
         return res.status(400).send("Can only edit active calls");
       }
-      const { targetPrice, stopLoss } = req.body;
+      const { targetPrice, stopLoss, rationale } = req.body;
       const updated = await storage.updateCall(call.id, {
         ...(targetPrice !== undefined ? { targetPrice } : {}),
         ...(stopLoss !== undefined ? { stopLoss } : {}),
+        ...(rationale !== undefined ? { rationale } : {}),
       });
       res.json(updated);
     } catch (err: any) {
@@ -652,6 +663,54 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/calls/:id/publish", requireAdvisor, async (req, res) => {
+    try {
+      const call = await storage.getCall(req.params.id as string);
+      if (!call) return res.status(404).send("Call not found");
+      const strategy = await storage.getStrategy(call.strategyId);
+      if (!strategy || strategy.advisorId !== req.session.userId) {
+        return res.status(403).send("Not authorized");
+      }
+      if (call.status !== "Active") {
+        return res.status(400).send("Can only publish active calls");
+      }
+      if (!call.rationale || !call.rationale.trim()) {
+        return res.status(400).send("Rationale is required to publish a call");
+      }
+      const updated = await storage.updateCall(call.id, {
+        publishMode: "live",
+        isPublished: true,
+      });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.post("/api/positions/:id/publish", requireAdvisor, async (req, res) => {
+    try {
+      const pos = await storage.getPosition(req.params.id as string);
+      if (!pos) return res.status(404).send("Position not found");
+      const strategy = await storage.getStrategy(pos.strategyId);
+      if (!strategy || strategy.advisorId !== req.session.userId) {
+        return res.status(403).send("Not authorized");
+      }
+      if (pos.status !== "Active") {
+        return res.status(400).send("Can only publish active positions");
+      }
+      if (!pos.rationale || !pos.rationale.trim()) {
+        return res.status(400).send("Rationale is required to publish a position");
+      }
+      const updated = await storage.updatePosition(pos.id, {
+        publishMode: "live",
+        isPublished: true,
+      });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
   app.patch("/api/positions/:id", requireAdvisor, async (req, res) => {
     try {
       const pos = await storage.getPosition(req.params.id as string);
@@ -663,10 +722,11 @@ export async function registerRoutes(
       if (pos.status !== "Active") {
         return res.status(400).send("Can only edit active positions");
       }
-      const { target, stopLoss } = req.body;
+      const { target, stopLoss, rationale } = req.body;
       const updated = await storage.updatePosition(pos.id, {
         ...(target !== undefined ? { target } : {}),
         ...(stopLoss !== undefined ? { stopLoss } : {}),
+        ...(rationale !== undefined ? { rationale } : {}),
       });
       res.json(updated);
     } catch (err: any) {
