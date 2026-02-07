@@ -54,6 +54,7 @@ export interface IStorage {
   createSubscription(data: InsertSubscription): Promise<Subscription>;
 
   getContent(advisorId: string): Promise<Content[]>;
+  getContentById(id: string): Promise<(Content & { advisor: { id: string; username: string; companyName: string | null; logoUrl: string | null } }) | null>;
   getPublicContentByType(type: string): Promise<(Content & { advisor: { id: string; username: string; companyName: string | null; logoUrl: string | null } })[]>;
   createContent(data: InsertContent): Promise<Content>;
   deleteContent(id: string): Promise<void>;
@@ -276,6 +277,43 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(content).where(eq(content.advisorId, advisorId)).orderBy(desc(content.createdAt));
   }
 
+  async getContentById(id: string) {
+    const rows = await db
+      .select({
+        id: content.id,
+        advisorId: content.advisorId,
+        title: content.title,
+        type: content.type,
+        body: content.body,
+        attachments: content.attachments,
+        createdAt: content.createdAt,
+        advisorUsername: users.username,
+        advisorCompanyName: users.companyName,
+        advisorLogoUrl: users.logoUrl,
+      })
+      .from(content)
+      .innerJoin(users, eq(content.advisorId, users.id))
+      .where(eq(content.id, id));
+
+    if (rows.length === 0) return null;
+    const r = rows[0];
+    return {
+      id: r.id,
+      advisorId: r.advisorId,
+      title: r.title,
+      type: r.type,
+      body: r.body,
+      attachments: r.attachments,
+      createdAt: r.createdAt,
+      advisor: {
+        id: r.advisorId,
+        username: r.advisorUsername,
+        companyName: r.advisorCompanyName,
+        logoUrl: r.advisorLogoUrl,
+      },
+    };
+  }
+
   async getPublicContentByType(type: string) {
     const rows = await db
       .select({
@@ -284,6 +322,7 @@ export class DatabaseStorage implements IStorage {
         title: content.title,
         type: content.type,
         body: content.body,
+        attachments: content.attachments,
         createdAt: content.createdAt,
         advisorUsername: users.username,
         advisorCompanyName: users.companyName,
@@ -300,6 +339,7 @@ export class DatabaseStorage implements IStorage {
       title: r.title,
       type: r.type,
       body: r.body,
+      attachments: r.attachments,
       createdAt: r.createdAt,
       advisor: {
         id: r.advisorId,

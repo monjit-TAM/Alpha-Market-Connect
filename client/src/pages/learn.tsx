@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { BookOpen, Calendar } from "lucide-react";
+import { BookOpen, Calendar, ArrowRight } from "lucide-react";
 import { Link } from "wouter";
 import type { Content } from "@shared/schema";
 
@@ -44,17 +44,17 @@ export default function LearnPage() {
         ) : (
           <div className="space-y-3">
             {items.map((item) => (
-              <Card key={item.id} className="hover-elevate" data-testid={`content-card-${item.id}`}>
-                <CardContent className="p-5">
-                  <div className="flex flex-col sm:flex-row gap-4">
-                    <div className="flex-1 min-w-0 space-y-2">
-                      <h3 className="font-semibold text-base" data-testid={`text-content-title-${item.id}`}>{item.title}</h3>
-                      {item.body && (
-                        <p className="text-sm text-muted-foreground line-clamp-2">{item.body}</p>
-                      )}
-                      <div className="flex items-center gap-3 flex-wrap">
-                        <Link href={`/advisors/${item.advisor.id}`} data-testid={`link-advisor-${item.id}`}>
-                          <div className="flex items-center gap-1.5 cursor-pointer">
+              <Link key={item.id} href={`/content/${item.id}`}>
+                <Card className="hover-elevate cursor-pointer" data-testid={`content-card-${item.id}`}>
+                  <CardContent className="p-5">
+                    <div className="flex flex-col sm:flex-row gap-4">
+                      <div className="flex-1 min-w-0 space-y-2">
+                        <h3 className="font-semibold text-base" data-testid={`text-content-title-${item.id}`}>{item.title}</h3>
+                        {item.body && (
+                          <p className="text-sm text-muted-foreground line-clamp-2">{item.body}</p>
+                        )}
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <div className="flex items-center gap-1.5">
                             <Avatar className="w-5 h-5">
                               <AvatarFallback className="text-[10px] bg-primary text-primary-foreground">
                                 {(item.advisor.companyName || item.advisor.username).slice(0, 2).toUpperCase()}
@@ -64,23 +64,26 @@ export default function LearnPage() {
                               {item.advisor.companyName || item.advisor.username}
                             </span>
                           </div>
-                        </Link>
-                        {item.createdAt && (
-                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                            <Calendar className="w-3 h-3" />
-                            {new Date(item.createdAt).toLocaleDateString("en-IN", {
-                              day: "numeric",
-                              month: "short",
-                              year: "numeric",
-                            })}
-                          </div>
-                        )}
-                        <Badge variant="secondary" className="text-xs">Research</Badge>
+                          {item.createdAt && (
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                              <Calendar className="w-3 h-3" />
+                              {new Date(item.createdAt).toLocaleDateString("en-IN", {
+                                day: "numeric",
+                                month: "short",
+                                year: "numeric",
+                              })}
+                            </div>
+                          )}
+                          <Badge variant="secondary" className="text-xs">Research</Badge>
+                        </div>
+                        <div className="flex items-center gap-1 text-sm text-primary font-medium pt-1">
+                          Read More <ArrowRight className="w-3.5 h-3.5" />
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
+              </Link>
             ))}
           </div>
         )}

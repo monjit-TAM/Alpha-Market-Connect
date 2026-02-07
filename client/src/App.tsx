@@ -15,6 +15,7 @@ import Dashboard from "@/pages/dashboard/index";
 import AdminDashboard from "@/pages/admin/index";
 import MarketOutlook from "@/pages/market-outlook";
 import LearnPage from "@/pages/learn";
+import ContentDetail from "@/pages/content-detail";
 import ForgotPasswordPage from "@/pages/forgot-password";
 import ResetPasswordPage from "@/pages/reset-password";
 import SubscribePage from "@/pages/subscribe";
@@ -37,6 +38,7 @@ function Router() {
       <Route path="/advisors/:id" component={AdvisorDetail} />
       <Route path="/market-outlook" component={MarketOutlook} />
       <Route path="/learn" component={LearnPage} />
+      <Route path="/content/:id" component={ContentDetail} />
       <Route path="/agreements/:type" component={AgreementPage} />
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/dashboard/:rest*" component={Dashboard} />

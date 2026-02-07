@@ -92,6 +92,9 @@ export const positions = pgTable("positions", {
   publishMode: text("publish_mode").default("draft"),
   enableLeg: boolean("enable_leg").default(false),
   usePercentage: boolean("use_percentage").default(false),
+  exitPrice: numeric("exit_price"),
+  exitDate: timestamp("exit_date"),
+  gainPercent: numeric("gain_percent"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -123,6 +126,7 @@ export const content = pgTable("content", {
   title: text("title").notNull(),
   type: text("type").notNull().default("MarketUpdate"),
   body: text("body"),
+  attachments: text("attachments").array(),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

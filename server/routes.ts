@@ -264,6 +264,37 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/content/:id", async (req, res) => {
+    try {
+      const item = await storage.getContentById(req.params.id);
+      if (!item) return res.status(404).send("Content not found");
+      res.json(item);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.get("/api/strategies/:id/positions", async (req, res) => {
+    try {
+      const allPositions = await storage.getPositions(req.params.id);
+      const userId = req.session?.userId;
+
+      if (userId) {
+        const currentUser = await storage.getUser(userId);
+        if (currentUser?.role === "admin" || currentUser?.role === "advisor") {
+          return res.json(allPositions);
+        }
+        const sub = await storage.getUserSubscriptionForStrategy(userId, req.params.id);
+        if (sub) return res.json(allPositions);
+      }
+
+      const closedOnly = allPositions.filter((p: any) => p.status === "Closed");
+      res.json(closedOnly);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
   app.get("/api/live-call-counts", async (_req, res) => {
     try {
       const strats = await storage.getPublishedStrategies();
@@ -654,8 +685,19 @@ export async function registerRoutes(
       if (pos.status !== "Active") {
         return res.status(400).send("Position is already closed");
       }
+      const exitPrice = req.body.exitPrice || req.body.sellPrice || null;
+      const entryPx = Number(pos.entryPrice || 0);
+      const exitPx = Number(exitPrice || 0);
+      let gainPercent: string | null = null;
+      if (entryPx > 0 && exitPx > 0) {
+        const isSell = pos.buySell === "Sell";
+        gainPercent = (isSell ? ((entryPx - exitPx) / entryPx) * 100 : ((exitPx - entryPx) / entryPx) * 100).toFixed(2);
+      }
       const updated = await storage.updatePosition(pos.id, {
         status: "Closed",
+        exitPrice: exitPrice,
+        exitDate: new Date(),
+        gainPercent: gainPercent,
       });
       res.json(updated);
     } catch (err: any) {
@@ -795,11 +837,28 @@ export async function registerRoutes(
 
       if (type === "Calls Report") {
         const strats = await storage.getStrategies(req.session.userId!);
-        let csv = "Strategy,Stock,Action,Entry Price,Target,Stop Loss,Status,Date\n";
+        let csv = "Strategy,Stock,Action,Entry Price,Entry Date,Entry Time,Target,Stop Loss,Exit Price,Exit Date,Exit Time,Status,Gain %\n";
         for (const s of strats) {
           const callsList = await storage.getCalls(s.id);
           for (const c of callsList) {
-            csv += `"${s.name}","${c.stockName}","${c.action}","${c.entryPrice || ""}","${c.targetPrice || ""}","${c.stopLoss || ""}","${c.status}","${c.callDate || ""}"\n`;
+            const entryDt = c.createdAt || c.callDate;
+            const entryDate = entryDt ? new Date(entryDt).toLocaleDateString("en-IN") : "";
+            const entryTime = entryDt ? new Date(entryDt).toLocaleTimeString("en-IN") : "";
+            const exitDt = c.exitDate;
+            const exitDate = exitDt ? new Date(exitDt).toLocaleDateString("en-IN") : "";
+            const exitTime = exitDt ? new Date(exitDt).toLocaleTimeString("en-IN") : "";
+            csv += `"${s.name}","${c.stockName}","${c.action}","${c.entryPrice || c.buyRangeStart || ""}","${entryDate}","${entryTime}","${c.targetPrice || ""}","${c.stopLoss || ""}","${c.sellPrice || ""}","${exitDate}","${exitTime}","${c.status}","${c.gainPercent || ""}"\n`;
+          }
+          const positionsList = await storage.getPositions(s.id);
+          for (const p of positionsList) {
+            const entryDt = p.createdAt;
+            const entryDate = entryDt ? new Date(entryDt).toLocaleDateString("en-IN") : "";
+            const entryTime = entryDt ? new Date(entryDt).toLocaleTimeString("en-IN") : "";
+            const exitDt = p.exitDate;
+            const exitDate = exitDt ? new Date(exitDt).toLocaleDateString("en-IN") : "";
+            const exitTime = exitDt ? new Date(exitDt).toLocaleTimeString("en-IN") : "";
+            const symbolLabel = `${p.symbol || ""}${p.expiry ? " " + p.expiry : ""}${p.strikePrice ? " " + p.strikePrice : ""}${p.callPut ? " " + p.callPut : ""}`;
+            csv += `"${s.name}","${symbolLabel.trim()}","${p.buySell || "Buy"}","${p.entryPrice || ""}","${entryDate}","${entryTime}","${p.target || ""}","${p.stopLoss || ""}","${p.exitPrice || ""}","${exitDate}","${exitTime}","${p.status}","${p.gainPercent || ""}"\n`;
           }
         }
         res.send(csv);

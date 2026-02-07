@@ -18,6 +18,14 @@ AlphaMarket is a SaaS marketplace platform connecting SEBI-registered Indian adv
 - **Auth**: Session-based with scrypt password hashing
 
 ## Recent Changes
+- Added content detail page (`/content/:id`) with full article view, attachment rendering (images, videos, audio, PDFs)
+- Market Outlook and Learn pages now have clickable "Read More" links to content detail view
+- Strategy detail page now fetches and displays positions (F&O) alongside calls in active/closed sections
+- Position close endpoint now captures exit price, exit date, and auto-calculates gain% respecting buy/sell direction
+- Calls Report CSV now includes entry date/time, exit date/time, exit price, gain%, and both calls AND positions data
+- Added public API routes: `/api/content/:id` (single content), `/api/strategies/:id/positions` (public positions with subscription gating)
+- Added `attachments` text array column to content table for multi-format content publishing
+- Added `exitPrice`, `exitDate`, `gainPercent` columns to positions table for exit tracking
 - Fixed F&O P&L calculation: now uses live option premium (CE/PE LTP) instead of underlying index/stock LTP
 - P&L for Sell positions calculates inversely (entry - LTP) / entry
 - Option chain data fetched per strategy for active F&O positions to resolve live option premiums

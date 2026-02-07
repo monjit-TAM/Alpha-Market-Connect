@@ -7,7 +7,7 @@ import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
 import { TrendingUp, Calendar, BarChart3, Star, Lock, Zap, Shield, Eye, ArrowUp, ArrowDown } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Strategy, Call, User } from "@shared/schema";
+import type { Strategy, Call, User, Position } from "@shared/schema";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -41,6 +41,11 @@ export default function StrategyDetail() {
 
   const { data: calls } = useQuery<Call[]>({
     queryKey: ["/api/strategies", id, "calls"],
+    enabled: !!id,
+  });
+
+  const { data: positions } = useQuery<Position[]>({
+    queryKey: ["/api/strategies", id, "positions"],
     enabled: !!id,
   });
 
@@ -99,6 +104,8 @@ export default function StrategyDetail() {
 
   const activeCalls = (calls || []).filter((c) => c.status === "Active");
   const closedCalls = (calls || []).filter((c) => c.status === "Closed");
+  const activePositions = (positions || []).filter((p) => p.status === "Active");
+  const closedPositions = (positions || []).filter((p) => p.status === "Closed");
   const advisorName = strategy.advisor?.companyName || strategy.advisor?.username || "Advisor";
 
   return (
@@ -234,7 +241,7 @@ export default function StrategyDetail() {
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
               <Zap className="w-4 h-4 text-primary" />
-              Active Recommendations ({activeCalls.length})
+              Active Recommendations ({activeCalls.length + activePositions.length})
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -257,7 +264,7 @@ export default function StrategyDetail() {
                   Subscribe to Unlock
                 </Button>
               </div>
-            ) : activeCalls.length === 0 ? (
+            ) : (activeCalls.length === 0 && activePositions.length === 0) ? (
               <div className="text-center py-6 text-sm text-muted-foreground">
                 <p>No active trades at the moment. New calls will appear here.</p>
               </div>
@@ -335,6 +342,50 @@ export default function StrategyDetail() {
                         </>
                       );
                     })}
+                    {activePositions.map((pos) => {
+                      const symbolLabel = `${pos.symbol || ""}${pos.expiry ? " " + pos.expiry : ""}${pos.strikePrice ? " " + pos.strikePrice : ""}${pos.callPut ? " " + pos.callPut : ""}`;
+                      const entryPx = Number(pos.entryPrice || 0);
+                      const targetPx = Number(pos.target || 0);
+                      const isSell = pos.buySell === "Sell";
+                      const pnl = entryPx > 0 && targetPx > 0
+                        ? (isSell ? ((entryPx - targetPx) / entryPx) * 100 : ((targetPx - entryPx) / entryPx) * 100)
+                        : null;
+                      return (
+                        <>
+                          <tr key={pos.id} className="border-b last:border-0" data-testid={`row-pos-${pos.id}`}>
+                            <td className="py-2 font-medium">{symbolLabel.trim()}</td>
+                            <td className="py-2">{"\u20B9"}{pos.entryPrice || "--"}</td>
+                            <td className="py-2 text-muted-foreground">--</td>
+                            <td className="py-2" data-testid={`pnl-pos-${pos.id}`}>
+                              {pnl !== null ? (
+                                <span className={pnl >= 0 ? "text-green-600 dark:text-green-400 font-medium" : "text-red-600 dark:text-red-400 font-medium"}>
+                                  {pnl >= 0 ? "+" : ""}{pnl.toFixed(2)}%
+                                </span>
+                              ) : "--"}
+                            </td>
+                            <td className="py-2">{pos.target ? `\u20B9${pos.target}` : "--"}</td>
+                            <td className="py-2">{pos.stopLoss ? `\u20B9${pos.stopLoss}` : "--"}</td>
+                            <td className="py-2 text-xs">
+                              {pos.createdAt
+                                ? new Date(pos.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+                                : "--"}
+                              {pos.createdAt && (
+                                <span className="block text-muted-foreground">
+                                  {new Date(pos.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                          {pos.rationale && (
+                            <tr key={`${pos.id}-rationale`} className="border-b last:border-0">
+                              <td colSpan={7} className="py-1.5 px-2">
+                                <p className="text-xs text-muted-foreground italic">{pos.rationale}</p>
+                              </td>
+                            </tr>
+                          )}
+                        </>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -344,10 +395,10 @@ export default function StrategyDetail() {
 
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Past / Closed Recommendations ({closedCalls.length})</CardTitle>
+            <CardTitle className="text-base">Past / Closed Recommendations ({closedCalls.length + closedPositions.length})</CardTitle>
           </CardHeader>
           <CardContent>
-            {closedCalls.length === 0 ? (
+            {closedCalls.length === 0 && closedPositions.length === 0 ? (
               <p className="text-center py-6 text-sm text-muted-foreground">No closed recommendations yet</p>
             ) : (
               <div className="overflow-x-auto">
@@ -355,8 +406,8 @@ export default function StrategyDetail() {
                   <thead>
                     <tr className="border-b text-left">
                       <th className="pb-2 font-medium text-muted-foreground">Stock Name</th>
-                      <th className="pb-2 font-medium text-muted-foreground">Buy Price</th>
-                      <th className="pb-2 font-medium text-muted-foreground">Sell Price</th>
+                      <th className="pb-2 font-medium text-muted-foreground">Entry Price</th>
+                      <th className="pb-2 font-medium text-muted-foreground">Exit Price</th>
                       <th className="pb-2 font-medium text-muted-foreground">Gain/Loss</th>
                       <th className="pb-2 font-medium text-muted-foreground">Created</th>
                       <th className="pb-2 font-medium text-muted-foreground">Closed</th>
@@ -406,6 +457,50 @@ export default function StrategyDetail() {
                         )}
                       </>
                     ))}
+                    {closedPositions.map((pos) => {
+                      const symbolLabel = `${pos.symbol || ""}${pos.expiry ? " " + pos.expiry : ""}${pos.strikePrice ? " " + pos.strikePrice : ""}${pos.callPut ? " " + pos.callPut : ""}`;
+                      return (
+                        <>
+                          <tr key={pos.id} className="border-b last:border-0" data-testid={`row-closed-pos-${pos.id}`}>
+                            <td className="py-2 font-medium">{symbolLabel.trim()}</td>
+                            <td className="py-2">{pos.entryPrice ? `\u20B9${pos.entryPrice}` : "--"}</td>
+                            <td className="py-2">{pos.exitPrice ? `\u20B9${pos.exitPrice}` : "--"}</td>
+                            <td className="py-2">
+                              <span className={Number(pos.gainPercent) >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
+                                {pos.gainPercent ? `${pos.gainPercent}%` : "--"}
+                              </span>
+                            </td>
+                            <td className="py-2 text-xs">
+                              {pos.createdAt
+                                ? new Date(pos.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+                                : "--"}
+                              {pos.createdAt && (
+                                <span className="block text-muted-foreground">
+                                  {new Date(pos.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-2 text-xs">
+                              {pos.exitDate
+                                ? new Date(pos.exitDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+                                : "--"}
+                              {pos.exitDate && (
+                                <span className="block text-muted-foreground">
+                                  {new Date(pos.exitDate).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                          {pos.rationale && (
+                            <tr key={`${pos.id}-rationale`} className="border-b last:border-0">
+                              <td colSpan={6} className="py-1.5 px-2">
+                                <p className="text-xs text-muted-foreground italic">{pos.rationale}</p>
+                              </td>
+                            </tr>
+                          )}
+                        </>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
