@@ -3,6 +3,7 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { HelmetProvider } from "react-helmet-async";
 import { AuthProvider } from "@/lib/auth";
 import NotFound from "@/pages/not-found";
 import Home from "@/pages/home";
@@ -22,6 +23,7 @@ import SubscribePage from "@/pages/subscribe";
 import PaymentPage from "@/pages/payment";
 import AgreementPage from "@/pages/agreements";
 import PaymentCallbackPage from "@/pages/payment-callback";
+import { TermsAndConditions, CancellationPolicy, PrivacyPolicy, LegalAgreement, ShippingAndReturns, ContactUs } from "@/pages/legal";
 
 function Router() {
   return (
@@ -42,6 +44,12 @@ function Router() {
       <Route path="/content/:id" component={ContentDetail} />
       <Route path="/agreements/:type" component={AgreementPage} />
       <Route path="/payment-callback" component={PaymentCallbackPage} />
+      <Route path="/terms-and-conditions" component={TermsAndConditions} />
+      <Route path="/cancellation-policy" component={CancellationPolicy} />
+      <Route path="/privacy-policy" component={PrivacyPolicy} />
+      <Route path="/legal-agreement" component={LegalAgreement} />
+      <Route path="/shipping-and-delivery" component={ShippingAndReturns} />
+      <Route path="/contact-us" component={ContactUs} />
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/dashboard/:rest*" component={Dashboard} />
       <Route path="/admin" component={AdminDashboard} />
@@ -54,12 +62,14 @@ function Router() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <AuthProvider>
-          <Toaster />
-          <Router />
-        </AuthProvider>
-      </TooltipProvider>
+      <HelmetProvider>
+        <TooltipProvider>
+          <AuthProvider>
+            <Toaster />
+            <Router />
+          </AuthProvider>
+        </TooltipProvider>
+      </HelmetProvider>
     </QueryClientProvider>
   );
 }

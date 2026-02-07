@@ -81,6 +81,69 @@ export async function registerRoutes(
     next();
   }
 
+  app.get("/sitemap.xml", async (_req, res) => {
+    try {
+      const baseUrl = process.env.REPLIT_DEV_DOMAIN
+        ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+        : process.env.REPL_SLUG
+          ? `https://${process.env.REPL_SLUG}.replit.app`
+          : "https://alphamarket.co.in";
+
+      const strategies = await storage.getPublishedStrategies();
+      const advisors = await storage.getAdvisors();
+
+      const staticPages = [
+        { loc: "/", priority: "1.0", changefreq: "daily" },
+        { loc: "/strategies", priority: "0.9", changefreq: "daily" },
+        { loc: "/advisors", priority: "0.9", changefreq: "daily" },
+        { loc: "/market-outlook", priority: "0.8", changefreq: "daily" },
+        { loc: "/learn", priority: "0.8", changefreq: "weekly" },
+        { loc: "/login", priority: "0.5", changefreq: "monthly" },
+        { loc: "/register", priority: "0.5", changefreq: "monthly" },
+        { loc: "/terms-and-conditions", priority: "0.3", changefreq: "yearly" },
+        { loc: "/cancellation-policy", priority: "0.3", changefreq: "yearly" },
+        { loc: "/privacy-policy", priority: "0.3", changefreq: "yearly" },
+        { loc: "/legal-agreement", priority: "0.3", changefreq: "yearly" },
+        { loc: "/shipping-and-delivery", priority: "0.3", changefreq: "yearly" },
+        { loc: "/contact-us", priority: "0.4", changefreq: "monthly" },
+      ];
+
+      let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+      xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
+
+      for (const page of staticPages) {
+        xml += `  <url>\n`;
+        xml += `    <loc>${baseUrl}${page.loc}</loc>\n`;
+        xml += `    <changefreq>${page.changefreq}</changefreq>\n`;
+        xml += `    <priority>${page.priority}</priority>\n`;
+        xml += `  </url>\n`;
+      }
+
+      for (const strategy of strategies) {
+        xml += `  <url>\n`;
+        xml += `    <loc>${baseUrl}/strategies/${strategy.id}</loc>\n`;
+        xml += `    <changefreq>daily</changefreq>\n`;
+        xml += `    <priority>0.7</priority>\n`;
+        xml += `  </url>\n`;
+      }
+
+      for (const advisor of advisors) {
+        xml += `  <url>\n`;
+        xml += `    <loc>${baseUrl}/advisors/${advisor.id}</loc>\n`;
+        xml += `    <changefreq>weekly</changefreq>\n`;
+        xml += `    <priority>0.7</priority>\n`;
+        xml += `  </url>\n`;
+      }
+
+      xml += `</urlset>`;
+
+      res.set("Content-Type", "application/xml");
+      res.send(xml);
+    } catch (err: any) {
+      res.status(500).send("Error generating sitemap");
+    }
+  });
+
   // Auth routes
   app.post("/api/auth/register", async (req, res) => {
     try {

@@ -39,17 +39,18 @@ export function Footer() {
           <div>
             <h4 className="font-semibold text-sm mb-3">Disclosures</h4>
             <ul className="space-y-1.5 text-sm text-muted-foreground">
-              <li className="cursor-default">Privacy Policy</li>
-              <li className="cursor-default">Grievances</li>
-              <li className="cursor-default">Terms and Conditions</li>
+              <li><Link href="/privacy-policy" className="hover:text-foreground transition-colors" data-testid="footer-link-privacy">Privacy Policy</Link></li>
+              <li><Link href="/terms-and-conditions" className="hover:text-foreground transition-colors" data-testid="footer-link-terms">Terms and Conditions</Link></li>
+              <li><Link href="/legal-agreement" className="hover:text-foreground transition-colors" data-testid="footer-link-legal">Legal Disclosures</Link></li>
+              <li><Link href="/cancellation-policy" className="hover:text-foreground transition-colors" data-testid="footer-link-cancellation">Cancellation & Refund</Link></li>
+              <li><Link href="/shipping-and-delivery" className="hover:text-foreground transition-colors" data-testid="footer-link-shipping">Shipping & Delivery</Link></li>
             </ul>
           </div>
           <div>
             <h4 className="font-semibold text-sm mb-3">About us</h4>
             <ul className="space-y-1.5 text-sm text-muted-foreground">
-              <li className="cursor-default">Contact us</li>
-              <li className="cursor-default">Help Center</li>
-              <li className="cursor-default">Site Map</li>
+              <li><Link href="/contact-us" className="hover:text-foreground transition-colors" data-testid="footer-link-contact">Contact Us</Link></li>
+              <li><Link href="/sitemap.xml" className="hover:text-foreground transition-colors" data-testid="footer-link-sitemap">Site Map</Link></li>
             </ul>
           </div>
         </div>
