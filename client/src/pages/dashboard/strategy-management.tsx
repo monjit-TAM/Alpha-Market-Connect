@@ -383,6 +383,7 @@ function StrategyCallsPanel({ strategy }: { strategy: Strategy }) {
   const [editingCall, setEditingCall] = useState<Call | null>(null);
   const [editingPosition, setEditingPosition] = useState<Position | null>(null);
   const [closingCall, setClosingCall] = useState<Call | null>(null);
+  const [closingPosition, setClosingPosition] = useState<Position | null>(null);
 
   const { data: calls, isLoading: callsLoading } = useQuery<Call[]>({
     queryKey: ["/api/advisor/strategies", strategy.id, "calls"],
@@ -511,6 +512,7 @@ function StrategyCallsPanel({ strategy }: { strategy: Strategy }) {
                   key={pos.id}
                   position={pos}
                   onEdit={() => setEditingPosition(pos)}
+                  onClose={() => setClosingPosition(pos)}
                   strategyId={strategy.id}
                   livePrice={pos.symbol ? livePrices?.[pos.symbol] : undefined}
                   optionPremiumLTP={getOptionPremiumLTP(pos)}
@@ -551,6 +553,12 @@ function StrategyCallsPanel({ strategy }: { strategy: Strategy }) {
       <CloseCallDialog
         call={closingCall}
         onClose={() => setClosingCall(null)}
+        strategyId={strategy.id}
+      />
+
+      <ClosePositionDialog
+        position={closingPosition}
+        onClose={() => setClosingPosition(null)}
         strategyId={strategy.id}
       />
     </div>
@@ -613,9 +621,9 @@ function CallRow({
           {call.buyRangeStart && <span>Entry: {Number(call.buyRangeStart).toFixed(2)}{call.buyRangeEnd ? ` - ${Number(call.buyRangeEnd).toFixed(2)}` : ""}</span>}
           {call.targetPrice && <span>Target: {Number(call.targetPrice).toFixed(2)}</span>}
           {call.stopLoss && <span>SL: {Number(call.stopLoss).toFixed(2)}</span>}
-          {call.sellPrice && <span>Exit: {Number(call.sellPrice).toFixed(2)}</span>}
-          {call.gainPercent && (
-            <span className={Number(call.gainPercent) >= 0 ? "text-green-600" : "text-red-600"}>
+          {!isActive && call.sellPrice != null && <span>Exit: {Number(call.sellPrice).toFixed(2)}</span>}
+          {!isActive && call.gainPercent != null && (
+            <span className={Number(call.gainPercent) >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
               {Number(call.gainPercent) >= 0 ? "+" : ""}{Number(call.gainPercent).toFixed(2)}%
             </span>
           )}
@@ -653,17 +661,18 @@ function CallRow({
 function PositionRow({
   position,
   onEdit,
+  onClose,
   strategyId,
   livePrice,
   optionPremiumLTP,
 }: {
   position: Position;
   onEdit?: () => void;
+  onClose?: () => void;
   strategyId: string;
   livePrice?: { ltp: number; change: number; changePercent: number };
   optionPremiumLTP?: number | null;
 }) {
-  const { toast } = useToast();
   const isActive = position.status === "Active";
   const entryPx = Number(position.entryPrice || 0);
   const targetPx = Number(position.target || 0);
@@ -673,19 +682,6 @@ function PositionRow({
         ? ((entryPx - targetPx) / entryPx) * 100
         : ((targetPx - entryPx) / entryPx) * 100)
     : null;
-
-  const closeMutation = useMutation({
-    mutationFn: async () => {
-      await apiRequest("POST", `/api/positions/${position.id}/close`, {});
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/advisor/strategies", strategyId, "positions"] });
-      toast({ title: "Position closed" });
-    },
-    onError: (err: any) => {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    },
-  });
 
   return (
     <div
@@ -727,11 +723,20 @@ function PositionRow({
           {position.stopLoss && <span>SL: {position.stopLoss}</span>}
           {position.lots && <span>Lots: {position.lots}</span>}
           {position.expiry && <span>Exp: {position.expiry}</span>}
+          {!isActive && position.exitPrice != null && <span>Close Price: {Number(position.exitPrice).toFixed(2)}</span>}
+          {!isActive && position.gainPercent != null && (
+            <span className={Number(position.gainPercent) >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
+              {Number(position.gainPercent) >= 0 ? "+" : ""}{Number(position.gainPercent).toFixed(2)}%
+            </span>
+          )}
           <span>
             {position.createdAt
               ? `${new Date(position.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })} ${new Date(position.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`
               : ""}
           </span>
+          {!isActive && position.exitDate && (
+            <span>Closed: {new Date(position.exitDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })} {new Date(position.exitDate).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}</span>
+          )}
         </div>
         {position.rationale && (
           <p className="text-xs text-muted-foreground mt-1 italic">{position.rationale}</p>
@@ -744,15 +749,16 @@ function PositionRow({
               <Pencil className="w-4 h-4" />
             </Button>
           )}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => closeMutation.mutate()}
-            disabled={closeMutation.isPending}
-            data-testid={`button-close-position-${position.id}`}
-          >
-            {closeMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
-          </Button>
+          {onClose && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onClose}
+              data-testid={`button-close-position-${position.id}`}
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          )}
         </div>
       )}
     </div>
@@ -970,6 +976,79 @@ function CloseCallDialog({
           >
             {mutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
             Close Call
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ClosePositionDialog({
+  position,
+  onClose,
+  strategyId,
+}: {
+  position: Position | null;
+  onClose: () => void;
+  strategyId: string;
+}) {
+  const { toast } = useToast();
+  const [exitPrice, setExitPrice] = useState("");
+
+  useEffect(() => {
+    if (position) setExitPrice("");
+  }, [position]);
+
+  const mutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", `/api/positions/${position?.id}/close`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/advisor/strategies", strategyId, "positions"] });
+      onClose();
+      toast({ title: "Position closed" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const symbolLabel = position
+    ? `${position.symbol || ""}${position.expiry ? " " + position.expiry : ""}${position.strikePrice ? " " + position.strikePrice : ""}${position.callPut ? " " + position.callPut : ""}`.trim()
+    : "";
+
+  return (
+    <Dialog open={!!position} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Close Position - {symbolLabel || position?.symbol}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="text-sm text-muted-foreground">
+            Entry: {position?.entryPrice ? Number(position.entryPrice).toFixed(2) : "N/A"}
+            {position?.buySell && <span className="ml-2">({position.buySell})</span>}
+          </div>
+          <div className="space-y-1.5">
+            <Label>Exit / Close Price</Label>
+            <Input
+              type="number"
+              step="0.01"
+              value={exitPrice}
+              onChange={(e) => setExitPrice(e.target.value)}
+              placeholder="Enter exit price"
+              data-testid="input-exit-price"
+            />
+          </div>
+          <Button
+            className="w-full"
+            variant="destructive"
+            onClick={() => mutation.mutate({ exitPrice: exitPrice || undefined })}
+            disabled={mutation.isPending}
+            data-testid="button-confirm-close-position"
+          >
+            {mutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+            Close Position
           </Button>
         </div>
       </DialogContent>

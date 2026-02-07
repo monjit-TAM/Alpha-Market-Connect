@@ -35,6 +35,8 @@ export default function DashboardHome() {
     recs: Number(s.totalRecommendations || 0),
   }));
 
+  const hasChartData = chartData.some((d) => d.cagr !== 0);
+
   return (
     <div className="space-y-6 max-w-5xl">
       <div className="grid md:grid-cols-2 gap-6">
@@ -68,6 +70,20 @@ export default function DashboardHome() {
                     <div className="text-center space-y-1">
                       <TrendingUp className="w-8 h-8 mx-auto text-muted-foreground/50" />
                       <p>Create strategies to see performance</p>
+                    </div>
+                  </div>
+                ) : !hasChartData ? (
+                  <div data-testid="chart-strategy-performance">
+                    <div className="space-y-2">
+                      {chartData.map((d, i) => (
+                        <div key={i} className="flex items-center justify-between p-2 rounded-md bg-muted/50">
+                          <span className="text-sm font-medium truncate">{d.fullName}</span>
+                          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                            <span>CAGR: {d.cagr}%</span>
+                            <span>Recs: {d.recs}</span>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 ) : (

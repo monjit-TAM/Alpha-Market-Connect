@@ -419,10 +419,10 @@ export default function StrategyDetail() {
                         <tr key={call.id} className="border-b last:border-0" data-testid={`row-closed-call-${call.id}`}>
                           <td className="py-2 font-medium">{call.stockName}</td>
                           <td className="py-2">{"\u20B9"}{call.entryPrice || call.buyRangeStart}</td>
-                          <td className="py-2">{call.sellPrice ? `\u20B9${call.sellPrice}` : "--"}</td>
+                          <td className="py-2">{call.sellPrice != null ? `\u20B9${call.sellPrice}` : "--"}</td>
                           <td className="py-2">
                             <span className={Number(call.gainPercent) >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
-                              {call.gainPercent ? `${call.gainPercent}%` : "--"}
+                              {call.gainPercent != null ? `${call.gainPercent}%` : "--"}
                             </span>
                           </td>
                           <td className="py-2 text-xs">
@@ -464,10 +464,10 @@ export default function StrategyDetail() {
                           <tr key={pos.id} className="border-b last:border-0" data-testid={`row-closed-pos-${pos.id}`}>
                             <td className="py-2 font-medium">{symbolLabel.trim()}</td>
                             <td className="py-2">{pos.entryPrice ? `\u20B9${pos.entryPrice}` : "--"}</td>
-                            <td className="py-2">{pos.exitPrice ? `\u20B9${pos.exitPrice}` : "--"}</td>
+                            <td className="py-2">{pos.exitPrice != null ? `\u20B9${pos.exitPrice}` : "--"}</td>
                             <td className="py-2">
                               <span className={Number(pos.gainPercent) >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
-                                {pos.gainPercent ? `${pos.gainPercent}%` : "--"}
+                                {pos.gainPercent != null ? `${pos.gainPercent}%` : "--"}
                               </span>
                             </td>
                             <td className="py-2 text-xs">
