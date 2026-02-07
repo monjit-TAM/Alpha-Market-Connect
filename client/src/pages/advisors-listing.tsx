@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -7,19 +7,28 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
 import { Link } from "wouter";
-import { Search, Filter, CheckCircle, Shield } from "lucide-react";
+import { Search, Filter, CheckCircle, Shield, Heart, MessageCircle } from "lucide-react";
 import { useState } from "react";
 import type { User } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useAuth } from "@/lib/auth";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 export default function AdvisorsListing() {
   const [search, setSearch] = useState("");
   const [themeFilter, setThemeFilter] = useState("");
   const [sortBy, setSortBy] = useState("newest");
+  const { user } = useAuth();
 
   const { data: advisors, isLoading } = useQuery<(User & { liveStrategies?: number })[]>({
     queryKey: ["/api/advisors"],
+  });
+
+  const { data: watchlistIds } = useQuery<{ strategyIds: string[]; advisorIds: string[] }>({
+    queryKey: ["/api/investor/watchlist/ids"],
+    enabled: !!user,
   });
 
   const filtered = (advisors || []).filter((a) => {
@@ -100,7 +109,7 @@ export default function AdvisorsListing() {
             ) : (
               <div className="grid md:grid-cols-2 gap-4">
                 {filtered.map((advisor) => (
-                  <AdvisorCard key={advisor.id} advisor={advisor} />
+                  <AdvisorCard key={advisor.id} advisor={advisor} watchlistedIds={watchlistIds?.advisorIds} />
                 ))}
               </div>
             )}
@@ -112,7 +121,27 @@ export default function AdvisorsListing() {
   );
 }
 
-function AdvisorCard({ advisor }: { advisor: User & { liveStrategies?: number } }) {
+function AdvisorCard({ advisor, watchlistedIds }: { advisor: User & { liveStrategies?: number }; watchlistedIds?: string[] }) {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const isWatchlisted = watchlistedIds?.includes(advisor.id) ?? false;
+
+  const toggleMutation = useMutation({
+    mutationFn: async () => {
+      if (isWatchlisted) {
+        await apiRequest("DELETE", "/api/investor/watchlist", { itemType: "advisor", itemId: advisor.id });
+      } else {
+        await apiRequest("POST", "/api/investor/watchlist", { itemType: "advisor", itemId: advisor.id });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/investor/watchlist/ids"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/investor/watchlist"] });
+      toast({ title: isWatchlisted ? "Removed from watchlist" : "Added to watchlist" });
+    },
+  });
+
   return (
     <Card className="hover-elevate" data-testid={`card-advisor-${advisor.id}`}>
       <CardContent className="p-5 space-y-3">
@@ -130,6 +159,18 @@ function AdvisorCard({ advisor }: { advisor: User & { liveStrategies?: number } 
               <p className="text-xs text-muted-foreground">{advisor.sebiRegNumber || "N/A"}</p>
             </div>
           </div>
+          {user && (
+            <Button
+              size="icon"
+              variant="ghost"
+              className={isWatchlisted ? "text-red-500" : "text-muted-foreground"}
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleMutation.mutate(); }}
+              disabled={toggleMutation.isPending}
+              data-testid={`button-watchlist-advisor-${advisor.id}`}
+            >
+              <Heart className={`w-4 h-4 ${isWatchlisted ? "fill-current" : ""}`} />
+            </Button>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
@@ -164,11 +205,18 @@ function AdvisorCard({ advisor }: { advisor: User & { liveStrategies?: number } 
           </div>
         )}
 
-        <Link href={`/advisors/${advisor.id}`}>
-          <Button className="w-full" data-testid={`button-view-advisor-${advisor.id}`}>
-            View Details
-          </Button>
-        </Link>
+        <div className="flex gap-2">
+          <Link href={`/advisors/${advisor.id}`} className="flex-1">
+            <Button className="w-full" data-testid={`button-view-advisor-${advisor.id}`}>
+              View Details
+            </Button>
+          </Link>
+          <Link href={`/advisors/${advisor.id}#ask-question`}>
+            <Button variant="outline" size="icon" data-testid={`button-ask-advisor-${advisor.id}`}>
+              <MessageCircle className="w-4 h-4" />
+            </Button>
+          </Link>
+        </div>
       </CardContent>
     </Card>
   );

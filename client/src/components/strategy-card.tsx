@@ -2,8 +2,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
-import { BarChart3, Calendar, Clock, Zap } from "lucide-react";
+import { BarChart3, Calendar, Clock, Zap, Heart } from "lucide-react";
 import type { Strategy, User } from "@shared/schema";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/lib/auth";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 type StrategyWithMeta = Strategy & {
   advisor?: Partial<User>;
@@ -17,9 +21,29 @@ function getRiskColor(risk: string | null | undefined) {
   return "text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800";
 }
 
-export function StrategyCard({ strategy }: { strategy: StrategyWithMeta }) {
+export function StrategyCard({ strategy, watchlistedIds }: { strategy: StrategyWithMeta; watchlistedIds?: string[] }) {
   const advisorName = strategy.advisor?.companyName || strategy.advisor?.username || "Advisor";
   const truncatedAdvisorName = advisorName.length > 20 ? advisorName.slice(0, 18) + "..." : advisorName;
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const isWatchlisted = watchlistedIds?.includes(strategy.id) ?? false;
+
+  const toggleMutation = useMutation({
+    mutationFn: async () => {
+      if (isWatchlisted) {
+        await apiRequest("DELETE", "/api/investor/watchlist", { itemType: "strategy", itemId: strategy.id });
+      } else {
+        await apiRequest("POST", "/api/investor/watchlist", { itemType: "strategy", itemId: strategy.id });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/investor/watchlist/ids"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/investor/watchlist"] });
+      toast({ title: isWatchlisted ? "Removed from watchlist" : "Added to watchlist" });
+    },
+  });
 
   return (
     <Card className="hover-elevate overflow-visible" data-testid={`card-strategy-${strategy.id}`}>
@@ -33,9 +57,23 @@ export function StrategyCard({ strategy }: { strategy: StrategyWithMeta }) {
               by {truncatedAdvisorName}
             </p>
           </div>
-          <Badge variant="outline" className="text-xs flex-shrink-0">
-            Performance
-          </Badge>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {user && (
+              <Button
+                size="icon"
+                variant="ghost"
+                className={isWatchlisted ? "text-red-500" : "text-muted-foreground"}
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleMutation.mutate(); }}
+                disabled={toggleMutation.isPending}
+                data-testid={`button-watchlist-strategy-${strategy.id}`}
+              >
+                <Heart className={`w-4 h-4 ${isWatchlisted ? "fill-current" : ""}`} />
+              </Button>
+            )}
+            <Badge variant="outline" className="text-xs">
+              Performance
+            </Badge>
+          </div>
         </div>
 
         <div>

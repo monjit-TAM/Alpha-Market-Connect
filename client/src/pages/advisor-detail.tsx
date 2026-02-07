@@ -1,14 +1,21 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
-import { Calendar, TrendingUp, BarChart3, Shield, ExternalLink, Zap, CheckCircle } from "lucide-react";
+import { Calendar, TrendingUp, BarChart3, Shield, ExternalLink, Zap, CheckCircle, MessageCircle, Send } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import { Link } from "wouter";
+import { useAuth } from "@/lib/auth";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
+import { useState } from "react";
 import type { User, Strategy, Content as ContentType, Score } from "@shared/schema";
 
 export default function AdvisorDetail() {
@@ -211,8 +218,126 @@ export default function AdvisorDetail() {
             )}
           </div>
         </div>
+
+        <AskQuestionForm advisorId={id!} />
       </div>
       <Footer />
     </div>
+  );
+}
+
+function AskQuestionForm({ advisorId }: { advisorId: string }) {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [question, setQuestion] = useState("");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const body: any = { question };
+      if (!user) {
+        body.name = name;
+        body.email = email;
+        if (phone) body.phone = phone;
+      }
+      await apiRequest("POST", `/api/advisors/${advisorId}/questions`, body);
+    },
+    onSuccess: () => {
+      setSubmitted(true);
+      setQuestion("");
+      setName("");
+      setEmail("");
+      setPhone("");
+      toast({ title: "Question submitted", description: "The advisor will respond to your question soon." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const canSubmit = question.trim() && (user || (name.trim() && email.trim()));
+
+  return (
+    <Card id="ask-question" data-testid="card-ask-question">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2">
+          <MessageCircle className="w-4 h-4" /> Ask a Question
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {submitted ? (
+          <div className="text-center py-4 space-y-2">
+            <CheckCircle className="w-8 h-8 text-green-500 mx-auto" />
+            <p className="text-sm font-medium">Your question has been submitted!</p>
+            <p className="text-xs text-muted-foreground">The advisor will get back to you soon.</p>
+            <Button variant="outline" size="sm" onClick={() => setSubmitted(false)} data-testid="button-ask-another">
+              Ask Another Question
+            </Button>
+          </div>
+        ) : (
+          <>
+            {!user && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="q-name" className="text-xs">Name *</Label>
+                  <Input
+                    id="q-name"
+                    placeholder="Your name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    data-testid="input-question-name"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="q-email" className="text-xs">Email *</Label>
+                  <Input
+                    id="q-email"
+                    type="email"
+                    placeholder="your@email.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    data-testid="input-question-email"
+                  />
+                </div>
+                <div className="space-y-1 sm:col-span-2">
+                  <Label htmlFor="q-phone" className="text-xs">Phone (optional)</Label>
+                  <Input
+                    id="q-phone"
+                    placeholder="Phone number"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    data-testid="input-question-phone"
+                  />
+                </div>
+              </div>
+            )}
+            <div className="space-y-1">
+              <Label htmlFor="q-text" className="text-xs">Your Question *</Label>
+              <Textarea
+                id="q-text"
+                placeholder="Type your question here..."
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                className="resize-none"
+                rows={3}
+                data-testid="input-question-text"
+              />
+            </div>
+            <Button
+              onClick={() => mutation.mutate()}
+              disabled={!canSubmit || mutation.isPending}
+              className="w-full sm:w-auto"
+              data-testid="button-submit-question"
+            >
+              <Send className="w-3 h-3 mr-1" />
+              {mutation.isPending ? "Submitting..." : "Submit Question"}
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }

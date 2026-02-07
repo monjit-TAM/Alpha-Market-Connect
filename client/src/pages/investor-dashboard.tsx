@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,9 +8,11 @@ import { Footer } from "@/components/footer";
 import { useAuth } from "@/lib/auth";
 import { useLocation, Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
-import { TrendingUp, TrendingDown, ArrowUp, ArrowDown, Calendar, Shield, Zap, BarChart3, Eye } from "lucide-react";
-import type { Call, Position, Subscription } from "@shared/schema";
-import { apiRequest } from "@/lib/queryClient";
+import { TrendingUp, TrendingDown, ArrowUp, ArrowDown, Calendar, Shield, Zap, BarChart3, Eye, Heart, Bell, X } from "lucide-react";
+import type { Call, Position, Subscription, User, Strategy } from "@shared/schema";
+import { apiRequest, queryClient as qc } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useState } from "react";
 
 interface LivePrice {
@@ -92,6 +94,21 @@ export default function InvestorDashboard() {
 
   const { data: recommendations, isLoading: loadingRecs } = useQuery<RecommendationsData>({
     queryKey: ["/api/investor/recommendations"],
+  });
+
+  interface WatchlistItem {
+    id: string;
+    userId: string;
+    itemType: string;
+    itemId: string;
+    createdAt: string;
+    strategy?: Strategy & { advisor?: Partial<User> };
+    advisor?: Partial<User>;
+    newCalls?: number;
+  }
+
+  const { data: watchlistItems } = useQuery<WatchlistItem[]>({
+    queryKey: ["/api/investor/watchlist"],
   });
 
   const activeCalls = (recommendations?.calls || []).filter(c => c.status === "Active");
@@ -484,8 +501,160 @@ export default function InvestorDashboard() {
             </Tabs>
           </>
         )}
+
+        <WatchlistSection items={watchlistItems || []} />
       </div>
       <Footer />
+    </div>
+  );
+}
+
+interface WatchlistItemData {
+  id: string;
+  userId: string;
+  itemType: string;
+  itemId: string;
+  createdAt: string;
+  strategy?: Strategy & { advisor?: Partial<User> };
+  advisor?: Partial<User>;
+  newCalls?: number;
+}
+
+function WatchlistSection({ items }: { items: WatchlistItemData[] }) {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const removeMutation = useMutation({
+    mutationFn: async ({ itemType, itemId }: { itemType: string; itemId: string }) => {
+      await apiRequest("DELETE", "/api/investor/watchlist", { itemType, itemId });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/investor/watchlist"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/investor/watchlist/ids"] });
+      toast({ title: "Removed from watchlist" });
+    },
+  });
+
+  const strategyItems = items.filter(i => i.itemType === "strategy" && i.strategy);
+  const advisorItems = items.filter(i => i.itemType === "advisor" && i.advisor);
+
+  if (strategyItems.length === 0 && advisorItems.length === 0) return null;
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-semibold flex items-center gap-2" data-testid="text-watchlist-title">
+        <Heart className="w-5 h-5 text-red-500" /> My Watchlist
+      </h2>
+
+      {strategyItems.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-sm font-medium text-muted-foreground">Strategies</h3>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {strategyItems.map((item) => {
+              const s = item.strategy!;
+              return (
+                <Card key={item.id} className="hover-elevate" data-testid={`card-watchlist-strategy-${item.itemId}`}>
+                  <CardContent className="p-4 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <Link href={`/strategies/${item.itemId}`}>
+                          <h4 className="font-semibold text-sm truncate hover:underline cursor-pointer" data-testid={`text-watchlist-strategy-${item.itemId}`}>
+                            {s.name}
+                          </h4>
+                        </Link>
+                        <p className="text-xs text-muted-foreground">
+                          by {(s.advisor as any)?.companyName || (s.advisor as any)?.username || "Advisor"}
+                        </p>
+                      </div>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="text-red-500 flex-shrink-0"
+                        onClick={() => removeMutation.mutate({ itemType: "strategy", itemId: item.itemId })}
+                        disabled={removeMutation.isPending}
+                        data-testid={`button-remove-watchlist-${item.itemId}`}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <span className="text-muted-foreground">Type</span>
+                        <p className="font-medium">{s.type || "--"}</p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Risk</span>
+                        <p className="font-medium">{s.riskLevel || "--"}</p>
+                      </div>
+                    </div>
+                    {(item.newCalls || 0) > 0 && (
+                      <div className="flex items-center gap-1.5 text-xs bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 rounded-md px-2 py-1.5" data-testid={`text-watchlist-update-${item.itemId}`}>
+                        <Bell className="w-3 h-3" />
+                        <span>{item.newCalls} new recommendation(s) added. Subscribe to view details.</span>
+                      </div>
+                    )}
+                    <Link href={`/strategies/${item.itemId}/subscribe`}>
+                      <Button size="sm" className="w-full" data-testid={`button-subscribe-watchlist-${item.itemId}`}>
+                        Subscribe
+                      </Button>
+                    </Link>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {advisorItems.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-sm font-medium text-muted-foreground">Advisors</h3>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {advisorItems.map((item) => {
+              const a = item.advisor!;
+              return (
+                <Card key={item.id} className="hover-elevate" data-testid={`card-watchlist-advisor-${item.itemId}`}>
+                  <CardContent className="p-4 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Avatar className="w-8 h-8 flex-shrink-0">
+                          {(a as any).logoUrl && <AvatarImage src={(a as any).logoUrl} />}
+                          <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
+                            {((a as any).companyName || (a as any).username || "A").slice(0, 2).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0">
+                          <Link href={`/advisors/${item.itemId}`}>
+                            <h4 className="font-semibold text-sm truncate hover:underline cursor-pointer" data-testid={`text-watchlist-advisor-${item.itemId}`}>
+                              {(a as any).companyName || (a as any).username}
+                            </h4>
+                          </Link>
+                          <p className="text-xs text-muted-foreground">{(a as any).sebiRegNumber || ""}</p>
+                        </div>
+                      </div>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="text-red-500 flex-shrink-0"
+                        onClick={() => removeMutation.mutate({ itemType: "advisor", itemId: item.itemId })}
+                        disabled={removeMutation.isPending}
+                        data-testid={`button-remove-watchlist-advisor-${item.itemId}`}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                    <Link href={`/advisors/${item.itemId}`}>
+                      <Button variant="outline" size="sm" className="w-full" data-testid={`button-view-advisor-watchlist-${item.itemId}`}>
+                        View Details
+                      </Button>
+                    </Link>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

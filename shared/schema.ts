@@ -177,6 +177,28 @@ export const passwordResetTokens = pgTable("password_reset_tokens", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const watchlist = pgTable("watchlist", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  itemType: text("item_type").notNull(),
+  itemId: varchar("item_id").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const advisorQuestions = pgTable("advisor_questions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  advisorId: varchar("advisor_id").notNull().references(() => users.id),
+  userId: varchar("user_id").references(() => users.id),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  phone: text("phone"),
+  question: text("question").notNull(),
+  answer: text("answer"),
+  isRead: boolean("is_read").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  answeredAt: timestamp("answered_at"),
+});
+
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertStrategySchema = createInsertSchema(strategies).omit({ id: true, createdAt: true, modifiedAt: true });
 export const insertCallSchema = createInsertSchema(calls).omit({ id: true, createdAt: true });
@@ -186,6 +208,8 @@ export const insertSubscriptionSchema = createInsertSchema(subscriptions).omit({
 export const insertContentSchema = createInsertSchema(content).omit({ id: true, createdAt: true });
 export const insertScoreSchema = createInsertSchema(scores).omit({ id: true, createdAt: true });
 export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true, createdAt: true });
+export const insertWatchlistSchema = createInsertSchema(watchlist).omit({ id: true, createdAt: true });
+export const insertAdvisorQuestionSchema = createInsertSchema(advisorQuestions).omit({ id: true, createdAt: true, answeredAt: true });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -205,3 +229,7 @@ export type Score = typeof scores.$inferSelect;
 export type InsertScore = z.infer<typeof insertScoreSchema>;
 export type Payment = typeof payments.$inferSelect;
 export type InsertPayment = z.infer<typeof insertPaymentSchema>;
+export type Watchlist = typeof watchlist.$inferSelect;
+export type InsertWatchlist = z.infer<typeof insertWatchlistSchema>;
+export type AdvisorQuestion = typeof advisorQuestions.$inferSelect;
+export type InsertAdvisorQuestion = z.infer<typeof insertAdvisorQuestionSchema>;

@@ -1478,5 +1478,157 @@ export async function registerRoutes(
     }
   });
 
+  // ── Watchlist routes ──
+  app.get("/api/investor/watchlist", requireAuth, async (req, res) => {
+    try {
+      const items = await storage.getWatchlistByUser(req.session.userId!);
+      const enriched: any[] = [];
+      for (const item of items) {
+        if (item.itemType === "strategy") {
+          const strategy = await storage.getStrategy(item.itemId);
+          if (strategy) {
+            const activeCalls = await storage.getActiveCallsByStrategy(item.itemId);
+            const activePositions = await storage.getActivePositionsByStrategy(item.itemId);
+            const newCallsSinceWatch = activeCalls.filter(c => c.publishMode === "live" && c.createdAt && item.createdAt && new Date(c.createdAt) > new Date(item.createdAt)).length;
+            const newPosSinceWatch = activePositions.filter(p => p.publishMode === "live" && p.createdAt && item.createdAt && new Date(p.createdAt) > new Date(item.createdAt)).length;
+            const { password: _, ...safeAdvisor } = strategy.advisor || {} as any;
+            enriched.push({ ...item, strategy: { ...strategy, advisor: safeAdvisor }, newCalls: newCallsSinceWatch + newPosSinceWatch });
+          }
+        } else if (item.itemType === "advisor") {
+          const advisor = await storage.getUser(item.itemId);
+          if (advisor) {
+            const { password: _, ...safeAdvisor } = advisor;
+            enriched.push({ ...item, advisor: safeAdvisor });
+          }
+        }
+      }
+      res.json(enriched);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.post("/api/investor/watchlist", requireAuth, async (req, res) => {
+    try {
+      const { itemType, itemId } = req.body;
+      if (!itemType || !itemId) return res.status(400).send("itemType and itemId required");
+      if (!["strategy", "advisor"].includes(itemType)) return res.status(400).send("Invalid itemType");
+      const item = await storage.addWatchlistItem({ userId: req.session.userId!, itemType, itemId });
+      res.json(item);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.delete("/api/investor/watchlist", requireAuth, async (req, res) => {
+    try {
+      const { itemType, itemId } = req.body;
+      if (!itemType || !itemId) return res.status(400).send("itemType and itemId required");
+      await storage.removeWatchlistItem(req.session.userId!, itemType, itemId);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.get("/api/investor/watchlist/check", requireAuth, async (req, res) => {
+    try {
+      const { itemType, itemId } = req.query;
+      if (!itemType || !itemId) return res.status(400).send("itemType and itemId required");
+      const result = await storage.isWatchlisted(req.session.userId!, itemType as string, itemId as string);
+      res.json({ watchlisted: result });
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.get("/api/investor/watchlist/ids", requireAuth, async (req, res) => {
+    try {
+      const items = await storage.getWatchlistByUser(req.session.userId!);
+      const strategyIds = items.filter(i => i.itemType === "strategy").map(i => i.itemId);
+      const advisorIds = items.filter(i => i.itemType === "advisor").map(i => i.itemId);
+      res.json({ strategyIds, advisorIds });
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  // ── Advisor Questions routes ──
+  app.post("/api/advisors/:id/questions", async (req, res) => {
+    try {
+      const advisorId = req.params.id;
+      const advisor = await storage.getUser(advisorId);
+      if (!advisor || advisor.role !== "advisor") return res.status(404).send("Advisor not found");
+
+      let name: string, email: string, phone: string | undefined;
+      const { question } = req.body;
+      if (!question || !question.trim()) return res.status(400).send("Question is required");
+
+      if (req.session.userId) {
+        const user = await storage.getUser(req.session.userId);
+        if (user) {
+          name = user.companyName || user.username;
+          email = user.email;
+          phone = user.phone || undefined;
+        } else {
+          return res.status(400).send("User not found");
+        }
+      } else {
+        name = req.body.name;
+        email = req.body.email;
+        phone = req.body.phone;
+        if (!name || !email) return res.status(400).send("Name and email are required for guest users");
+      }
+
+      const q = await storage.createAdvisorQuestion({
+        advisorId,
+        userId: req.session.userId || null,
+        name,
+        email,
+        phone: phone || null,
+        question: question.trim(),
+      });
+      res.json(q);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.get("/api/advisor/questions", requireAdvisor, async (req, res) => {
+    try {
+      const questions = await storage.getQuestionsByAdvisor(req.session.userId!);
+      res.json(questions);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.get("/api/advisor/questions/unread-count", requireAdvisor, async (req, res) => {
+    try {
+      const count = await storage.getUnreadQuestionCount(req.session.userId!);
+      res.json({ count });
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.patch("/api/advisor/questions/:id", requireAdvisor, async (req, res) => {
+    try {
+      const { answer, isRead } = req.body;
+      const data: any = {};
+      if (answer !== undefined) {
+        data.answer = answer;
+        data.answeredAt = new Date();
+        data.isRead = true;
+      }
+      if (isRead !== undefined) data.isRead = isRead;
+      const q = await storage.updateAdvisorQuestion(req.params.id, data, req.session.userId!);
+      if (!q) return res.status(404).send("Question not found or not yours");
+      res.json(q);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
   return httpServer;
 }

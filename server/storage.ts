@@ -1,7 +1,8 @@
 import { db } from "./db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import {
   users, strategies, calls, positions, plans, subscriptions, content, scores, passwordResetTokens, payments,
+  watchlist, advisorQuestions,
   type User, type InsertUser,
   type Strategy, type InsertStrategy,
   type Call, type InsertCall,
@@ -11,6 +12,8 @@ import {
   type Content, type InsertContent,
   type Score, type InsertScore,
   type Payment, type InsertPayment,
+  type Watchlist, type InsertWatchlist,
+  type AdvisorQuestion, type InsertAdvisorQuestion,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -79,6 +82,16 @@ export interface IStorage {
   getSubscriptionsByUserId(userId: string): Promise<Subscription[]>;
   getCallsByStrategy(strategyId: string): Promise<Call[]>;
   getPositionsByStrategy(strategyId: string): Promise<Position[]>;
+
+  addWatchlistItem(data: InsertWatchlist): Promise<Watchlist>;
+  removeWatchlistItem(userId: string, itemType: string, itemId: string): Promise<void>;
+  getWatchlistByUser(userId: string): Promise<Watchlist[]>;
+  isWatchlisted(userId: string, itemType: string, itemId: string): Promise<boolean>;
+
+  createAdvisorQuestion(data: InsertAdvisorQuestion): Promise<AdvisorQuestion>;
+  getQuestionsByAdvisor(advisorId: string): Promise<AdvisorQuestion[]>;
+  getUnreadQuestionCount(advisorId: string): Promise<number>;
+  updateAdvisorQuestion(id: string, data: Partial<AdvisorQuestion>, advisorId?: string): Promise<AdvisorQuestion | null>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -446,6 +459,55 @@ export class DatabaseStorage implements IStorage {
 
   async getPositionsByStrategy(strategyId: string): Promise<Position[]> {
     return db.select().from(positions).where(eq(positions.strategyId, strategyId)).orderBy(desc(positions.createdAt));
+  }
+
+  async addWatchlistItem(data: InsertWatchlist): Promise<Watchlist> {
+    const existing = await db.select().from(watchlist).where(
+      and(eq(watchlist.userId, data.userId), eq(watchlist.itemType, data.itemType), eq(watchlist.itemId, data.itemId))
+    );
+    if (existing.length > 0) return existing[0];
+    const [w] = await db.insert(watchlist).values(data).returning();
+    return w;
+  }
+
+  async removeWatchlistItem(userId: string, itemType: string, itemId: string): Promise<void> {
+    await db.delete(watchlist).where(
+      and(eq(watchlist.userId, userId), eq(watchlist.itemType, itemType), eq(watchlist.itemId, itemId))
+    );
+  }
+
+  async getWatchlistByUser(userId: string): Promise<Watchlist[]> {
+    return db.select().from(watchlist).where(eq(watchlist.userId, userId)).orderBy(desc(watchlist.createdAt));
+  }
+
+  async isWatchlisted(userId: string, itemType: string, itemId: string): Promise<boolean> {
+    const rows = await db.select().from(watchlist).where(
+      and(eq(watchlist.userId, userId), eq(watchlist.itemType, itemType), eq(watchlist.itemId, itemId))
+    );
+    return rows.length > 0;
+  }
+
+  async createAdvisorQuestion(data: InsertAdvisorQuestion): Promise<AdvisorQuestion> {
+    const [q] = await db.insert(advisorQuestions).values(data).returning();
+    return q;
+  }
+
+  async getQuestionsByAdvisor(advisorId: string): Promise<AdvisorQuestion[]> {
+    return db.select().from(advisorQuestions).where(eq(advisorQuestions.advisorId, advisorId)).orderBy(desc(advisorQuestions.createdAt));
+  }
+
+  async getUnreadQuestionCount(advisorId: string): Promise<number> {
+    const result = await db.select({ count: sql<number>`count(*)` }).from(advisorQuestions).where(
+      and(eq(advisorQuestions.advisorId, advisorId), eq(advisorQuestions.isRead, false))
+    );
+    return Number(result[0]?.count || 0);
+  }
+
+  async updateAdvisorQuestion(id: string, data: Partial<AdvisorQuestion>, advisorId?: string): Promise<AdvisorQuestion | null> {
+    const conditions = [eq(advisorQuestions.id, id)];
+    if (advisorId) conditions.push(eq(advisorQuestions.advisorId, advisorId));
+    const [q] = await db.update(advisorQuestions).set(data).where(and(...conditions)).returning();
+    return q || null;
   }
 }
 

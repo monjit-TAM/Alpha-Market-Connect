@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Search, Filter, BarChart3, Zap, BookOpen } from "lucide-react";
 import { useState } from "react";
 import { useSearch } from "wouter";
+import { useAuth } from "@/lib/auth";
 import type { Strategy, User } from "@shared/schema";
 
 type StrategyWithMeta = Strategy & { advisor?: Partial<User>; liveCalls?: number };
@@ -34,8 +35,15 @@ export default function StrategiesMarketplace() {
   const [managementStyleFilter, setManagementStyleFilter] = useState("");
   const [sortBy, setSortBy] = useState("newest");
 
+  const { user } = useAuth();
+
   const { data: strategies, isLoading } = useQuery<StrategyWithMeta[]>({
     queryKey: ["/api/strategies/public"],
+  });
+
+  const { data: watchlistIds } = useQuery<{ strategyIds: string[]; advisorIds: string[] }>({
+    queryKey: ["/api/investor/watchlist/ids"],
+    enabled: !!user,
   });
 
   const filtered = (strategies || []).filter((s) => {
@@ -238,7 +246,7 @@ export default function StrategiesMarketplace() {
             ) : (
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {sorted.map((strategy) => (
-                  <StrategyCard key={strategy.id} strategy={strategy} />
+                  <StrategyCard key={strategy.id} strategy={strategy} watchlistedIds={watchlistIds?.strategyIds} />
                 ))}
               </div>
             )}

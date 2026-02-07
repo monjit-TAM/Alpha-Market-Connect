@@ -1,6 +1,8 @@
 import { useAuth } from "@/lib/auth";
 import { useLocation, Link } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import { Navbar } from "@/components/navbar";
+import { Badge } from "@/components/ui/badge";
 import {
   Sidebar,
   SidebarContent,
@@ -22,6 +24,7 @@ import {
   User,
   LogOut,
   CreditCard,
+  MessageCircle,
 } from "lucide-react";
 
 import DashboardHome from "./dashboard-home";
@@ -31,12 +34,14 @@ import ContentPage from "./content-page";
 import AdvisorProfile from "./advisor-profile";
 import ReportsPage from "./reports";
 import PaymentsPage from "./payments-page";
+import QuestionsPage from "./questions-page";
 
 const sidebarItems = [
   { title: "Dashboard", icon: LayoutDashboard, path: "/dashboard" },
   { title: "Strategies", icon: ListChecks, path: "/dashboard/strategies" },
   { title: "Plans", icon: FolderKanban, path: "/dashboard/plans" },
   { title: "Payments", icon: CreditCard, path: "/dashboard/payments" },
+  { title: "Questions", icon: MessageCircle, path: "/dashboard/questions" },
   { title: "Content", icon: BookOpen, path: "/dashboard/content" },
   { title: "Reports", icon: BarChart3, path: "/dashboard/reports" },
   { title: "Profile", icon: User, path: "/dashboard/profile" },
@@ -45,6 +50,13 @@ const sidebarItems = [
 export default function Dashboard() {
   const { user, logout } = useAuth();
   const [location] = useLocation();
+
+  const { data: unreadData } = useQuery<{ count: number }>({
+    queryKey: ["/api/advisor/questions/unread-count"],
+    enabled: !!user && user.role === "advisor",
+    refetchInterval: 30000,
+  });
+  const unreadCount = unreadData?.count || 0;
 
   if (!user || user.role !== "advisor") {
     return (
@@ -71,6 +83,7 @@ export default function Dashboard() {
     if (location === "/dashboard/strategies") return <StrategyManagement />;
     if (location === "/dashboard/plans") return <PlansPage />;
     if (location === "/dashboard/payments") return <PaymentsPage />;
+    if (location === "/dashboard/questions") return <QuestionsPage />;
     if (location === "/dashboard/content") return <ContentPage />;
     if (location === "/dashboard/reports") return <ReportsPage />;
     if (location === "/dashboard/profile") return <AdvisorProfile />;
@@ -98,7 +111,12 @@ export default function Dashboard() {
                           >
                             <Link href={item.path}>
                               <item.icon className="w-4 h-4" />
-                              <span>{item.title}</span>
+                              <span className="flex-1">{item.title}</span>
+                              {item.title === "Questions" && unreadCount > 0 && (
+                                <Badge variant="destructive" className="text-[10px] ml-auto" data-testid="badge-sidebar-unread">
+                                  {unreadCount}
+                                </Badge>
+                              )}
                             </Link>
                           </SidebarMenuButton>
                         </SidebarMenuItem>
