@@ -96,6 +96,16 @@ AlphaMarket is a SaaS marketplace platform connecting SEBI-registered Indian adv
 - Groww token supports dual modes: manual paste (admin portal) and automatic API Key+Secret flow
 - Admin can view token status (active/expired/none), source, set time, and expiry
 - Added GET /api/admin/groww-token-status and POST /api/admin/groww-token admin routes
+- Added `duration`, `durationUnit`, `theme` columns to calls and positions tables
+- Replaced Profit Goal field with Duration (Days/Weeks/Months) and Theme (BTST/Momentum/High Volatility/Short Term/Medium Term/Long Term) in Add Stock Call and Add Position forms
+- F&O call/position close: one-click confirmation at prevailing market price (no exit price input)
+- Equity call/position close: advisor enters exit price manually
+- P&L calculation now uses live LTP instead of target price for accurate real-time gains on both strategy detail and advisor dashboard
+- F&O positions now display option premium LTP alongside entry price in advisor dashboard
+- Added investor dashboard page (/investor-dashboard) with active/past subscriptions and recommendations
+- Added "My Dashboard" navbar link for investor users
+- Fixed Customers Acquired section: shows customer name, email, phone, and strategy name
+- Revenue tracking: Monthly Revenue and YTD Revenue calculated from payments database
 
 ## Project Structure
 ```

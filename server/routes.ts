@@ -964,10 +964,15 @@ export async function registerRoutes(
       if (call.status !== "Active") {
         return res.status(400).send("Call is already closed");
       }
-      const { sellPrice, reason } = req.body || {};
+      const { sellPrice, reason, closeAtMarket } = req.body || {};
       const entryPrice = Number(call.entryPrice || call.buyRangeStart || 0);
       const exitPrice = sellPrice ? Number(sellPrice) : entryPrice;
-      const gainPercent = entryPrice > 0 ? (((exitPrice - entryPrice) / entryPrice) * 100).toFixed(2) : "0";
+      const isSellAction = call.action === "Sell";
+      const gainPercent = entryPrice > 0
+        ? (isSellAction
+            ? (((entryPrice - exitPrice) / entryPrice) * 100).toFixed(2)
+            : (((exitPrice - entryPrice) / entryPrice) * 100).toFixed(2))
+        : "0";
       const updated = await storage.updateCall(call.id, {
         status: "Closed",
         sellPrice: String(exitPrice),

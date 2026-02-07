@@ -586,12 +586,17 @@ function StrategyCallsPanel({ strategy }: { strategy: Strategy }) {
         call={closingCall}
         onClose={() => setClosingCall(null)}
         strategyId={strategy.id}
+        strategyType={strategy.type}
+        livePrices={livePrices}
       />
 
       <ClosePositionDialog
         position={closingPosition}
         onClose={() => setClosingPosition(null)}
         strategyId={strategy.id}
+        strategyType={strategy.type}
+        livePrices={livePrices}
+        getOptionPremiumLTP={getOptionPremiumLTP}
       />
     </div>
   );
@@ -610,10 +615,10 @@ function CallRow({
 }) {
   const isActive = call.status === "Active";
   const buyPrice = Number(call.entryPrice || call.buyRangeStart || 0);
-  const targetPrice = Number(call.targetPrice || 0);
+  const currentPrice = livePrice?.ltp || 0;
   const isSell = call.action === "Sell";
-  const pnl = buyPrice > 0 && targetPrice > 0
-    ? (isSell ? ((buyPrice - targetPrice) / buyPrice) * 100 : ((targetPrice - buyPrice) / buyPrice) * 100)
+  const pnl = buyPrice > 0 && currentPrice > 0
+    ? (isSell ? ((buyPrice - currentPrice) / buyPrice) * 100 : ((currentPrice - buyPrice) / buyPrice) * 100)
     : null;
 
   return (
@@ -653,6 +658,8 @@ function CallRow({
           {call.buyRangeStart && <span>Entry: {Number(call.buyRangeStart).toFixed(2)}{call.buyRangeEnd ? ` - ${Number(call.buyRangeEnd).toFixed(2)}` : ""}</span>}
           {call.targetPrice && <span>Target: {Number(call.targetPrice).toFixed(2)}</span>}
           {call.stopLoss && <span>SL: {Number(call.stopLoss).toFixed(2)}</span>}
+          {(call as any).duration && <span>Duration: {(call as any).duration} {(call as any).durationUnit || "Days"}</span>}
+          {(call as any).theme && <span>Theme: {(call as any).theme}</span>}
           {!isActive && call.sellPrice != null && <span>Exit: {Number(call.sellPrice).toFixed(2)}</span>}
           {!isActive && call.gainPercent != null && (
             <span className={Number(call.gainPercent) >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
@@ -707,12 +714,14 @@ function PositionRow({
 }) {
   const isActive = position.status === "Active";
   const entryPx = Number(position.entryPrice || 0);
-  const targetPx = Number(position.target || 0);
   const isFnO = position.strikePrice && position.expiry;
-  const pnl = entryPx > 0 && targetPx > 0
+  const currentPx = isFnO && optionPremiumLTP != null
+    ? optionPremiumLTP
+    : (position.symbol && livePrice ? livePrice.ltp : 0);
+  const pnl = entryPx > 0 && currentPx > 0
     ? (position.buySell === "Sell"
-        ? ((entryPx - targetPx) / entryPx) * 100
-        : ((targetPx - entryPx) / entryPx) * 100)
+        ? ((entryPx - currentPx) / entryPx) * 100
+        : ((currentPx - entryPx) / entryPx) * 100)
     : null;
 
   return (
@@ -742,6 +751,11 @@ function PositionRow({
               )}
             </span>
           )}
+          {isActive && isFnO && optionPremiumLTP != null && (
+            <span className="flex items-center gap-1 text-xs font-medium" data-testid={`ltp-pos-${position.id}`}>
+              {"\u20B9"}{optionPremiumLTP.toFixed(2)}
+            </span>
+          )}
           {isActive && pnl !== null && (
             <Badge variant="secondary" className={pnl >= 0 ? "text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950/30" : "text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/30"}>
               P&L: {pnl >= 0 ? "+" : ""}{pnl.toFixed(2)}%
@@ -755,6 +769,8 @@ function PositionRow({
           {position.stopLoss && <span>SL: {position.stopLoss}</span>}
           {position.lots && <span>Lots: {position.lots}</span>}
           {position.expiry && <span>Exp: {position.expiry}</span>}
+          {(position as any).duration && <span>Duration: {(position as any).duration} {(position as any).durationUnit || "Days"}</span>}
+          {(position as any).theme && <span>Theme: {(position as any).theme}</span>}
           {!isActive && position.exitPrice != null && <span>Close Price: {Number(position.exitPrice).toFixed(2)}</span>}
           {!isActive && position.gainPercent != null && (
             <span className={Number(position.gainPercent) >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
@@ -1148,10 +1164,14 @@ function CloseCallDialog({
   call,
   onClose,
   strategyId,
+  strategyType,
+  livePrices,
 }: {
   call: Call | null;
   onClose: () => void;
   strategyId: string;
+  strategyType: string;
+  livePrices?: Record<string, { ltp: number; change: number; changePercent: number }>;
 }) {
   const { toast } = useToast();
   const [sellPrice, setSellPrice] = useState("");
@@ -1159,6 +1179,9 @@ function CloseCallDialog({
   useEffect(() => {
     if (call) setSellPrice("");
   }, [call]);
+
+  const isFnO = ["Option", "Future", "Index", "CommodityFuture"].includes(strategyType);
+  const currentLTP = call ? livePrices?.[call.stockName]?.ltp : undefined;
 
   const mutation = useMutation({
     mutationFn: async (data: any) => {
@@ -1175,6 +1198,14 @@ function CloseCallDialog({
     },
   });
 
+  const handleFnOClose = () => {
+    if (!currentLTP) {
+      toast({ title: "Market price unavailable", description: "Please wait for live price to load or try again later.", variant: "destructive" });
+      return;
+    }
+    mutation.mutate({ sellPrice: String(currentLTP), closeAtMarket: true });
+  };
+
   return (
     <Dialog open={!!call} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-sm">
@@ -1185,27 +1216,56 @@ function CloseCallDialog({
           <div className="text-sm text-muted-foreground">
             Entry: {call?.buyRangeStart ? Number(call.buyRangeStart).toFixed(2) : call?.entryPrice ? Number(call.entryPrice).toFixed(2) : "N/A"}
           </div>
-          <div className="space-y-1.5">
-            <Label>Exit / Sell Price</Label>
-            <Input
-              type="number"
-              step="0.01"
-              value={sellPrice}
-              onChange={(e) => setSellPrice(e.target.value)}
-              placeholder="Enter exit price"
-              data-testid="input-sell-price"
-            />
-          </div>
-          <Button
-            className="w-full"
-            variant="destructive"
-            onClick={() => mutation.mutate({ sellPrice: sellPrice || undefined })}
-            disabled={mutation.isPending}
-            data-testid="button-confirm-close-call"
-          >
-            {mutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
-            Close Call
-          </Button>
+          {isFnO ? (
+            <>
+              {currentLTP !== undefined ? (
+                <div className="text-sm font-medium">
+                  Current Market Price: {"\u20B9"}{currentLTP.toFixed(2)}
+                </div>
+              ) : (
+                <div className="text-sm text-amber-600 dark:text-amber-400">
+                  Live price is loading or market is closed...
+                </div>
+              )}
+              <p className="text-sm text-muted-foreground">
+                This F&O call will be closed at the prevailing market price.
+              </p>
+              <Button
+                className="w-full"
+                variant="destructive"
+                onClick={handleFnOClose}
+                disabled={mutation.isPending || !currentLTP}
+                data-testid="button-confirm-close-call"
+              >
+                {mutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+                Confirm Close at Market Price
+              </Button>
+            </>
+          ) : (
+            <>
+              <div className="space-y-1.5">
+                <Label>Exit / Sell Price</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={sellPrice}
+                  onChange={(e) => setSellPrice(e.target.value)}
+                  placeholder="Enter exit price"
+                  data-testid="input-sell-price"
+                />
+              </div>
+              <Button
+                className="w-full"
+                variant="destructive"
+                onClick={() => mutation.mutate({ sellPrice: sellPrice || undefined })}
+                disabled={mutation.isPending}
+                data-testid="button-confirm-close-call"
+              >
+                {mutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+                Close Call
+              </Button>
+            </>
+          )}
         </div>
       </DialogContent>
     </Dialog>
@@ -1216,10 +1276,16 @@ function ClosePositionDialog({
   position,
   onClose,
   strategyId,
+  strategyType,
+  livePrices,
+  getOptionPremiumLTP,
 }: {
   position: Position | null;
   onClose: () => void;
   strategyId: string;
+  strategyType: string;
+  livePrices?: Record<string, { ltp: number; change: number; changePercent: number }>;
+  getOptionPremiumLTP: (pos: Position) => number | null;
 }) {
   const { toast } = useToast();
   const [exitPrice, setExitPrice] = useState("");
@@ -1227,6 +1293,14 @@ function ClosePositionDialog({
   useEffect(() => {
     if (position) setExitPrice("");
   }, [position]);
+
+  const isFnO = ["Option", "Future", "Index", "CommodityFuture"].includes(strategyType) ||
+    !!(position?.strikePrice && position?.expiry);
+  const currentLTP = position ? (
+    position.strikePrice && position.expiry
+      ? getOptionPremiumLTP(position)
+      : (position.symbol ? livePrices?.[position.symbol]?.ltp : undefined)
+  ) : undefined;
 
   const mutation = useMutation({
     mutationFn: async (data: any) => {
@@ -1243,6 +1317,14 @@ function ClosePositionDialog({
     },
   });
 
+  const handleFnOClose = () => {
+    if (!currentLTP) {
+      toast({ title: "Market price unavailable", description: "Please wait for live price to load or try again later.", variant: "destructive" });
+      return;
+    }
+    mutation.mutate({ exitPrice: String(currentLTP), closeAtMarket: true });
+  };
+
   const symbolLabel = position
     ? `${position.symbol || ""}${position.expiry ? " " + position.expiry : ""}${position.strikePrice ? " " + position.strikePrice : ""}${position.callPut ? " " + position.callPut : ""}`.trim()
     : "";
@@ -1258,27 +1340,56 @@ function ClosePositionDialog({
             Entry: {position?.entryPrice ? Number(position.entryPrice).toFixed(2) : "N/A"}
             {position?.buySell && <span className="ml-2">({position.buySell})</span>}
           </div>
-          <div className="space-y-1.5">
-            <Label>Exit / Close Price</Label>
-            <Input
-              type="number"
-              step="0.01"
-              value={exitPrice}
-              onChange={(e) => setExitPrice(e.target.value)}
-              placeholder="Enter exit price"
-              data-testid="input-exit-price"
-            />
-          </div>
-          <Button
-            className="w-full"
-            variant="destructive"
-            onClick={() => mutation.mutate({ exitPrice: exitPrice || undefined })}
-            disabled={mutation.isPending}
-            data-testid="button-confirm-close-position"
-          >
-            {mutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
-            Close Position
-          </Button>
+          {isFnO ? (
+            <>
+              {currentLTP != null ? (
+                <div className="text-sm font-medium">
+                  Current Market Price: {"\u20B9"}{Number(currentLTP).toFixed(2)}
+                </div>
+              ) : (
+                <div className="text-sm text-amber-600 dark:text-amber-400">
+                  Live price is loading or market is closed...
+                </div>
+              )}
+              <p className="text-sm text-muted-foreground">
+                This F&O position will be closed at the prevailing market price.
+              </p>
+              <Button
+                className="w-full"
+                variant="destructive"
+                onClick={handleFnOClose}
+                disabled={mutation.isPending || !currentLTP}
+                data-testid="button-confirm-close-position"
+              >
+                {mutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+                Confirm Close at Market Price
+              </Button>
+            </>
+          ) : (
+            <>
+              <div className="space-y-1.5">
+                <Label>Exit / Close Price</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={exitPrice}
+                  onChange={(e) => setExitPrice(e.target.value)}
+                  placeholder="Enter exit price"
+                  data-testid="input-exit-price"
+                />
+              </div>
+              <Button
+                className="w-full"
+                variant="destructive"
+                onClick={() => mutation.mutate({ exitPrice: exitPrice || undefined })}
+                disabled={mutation.isPending}
+                data-testid="button-confirm-close-position"
+              >
+                {mutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+                Close Position
+              </Button>
+            </>
+          )}
         </div>
       </DialogContent>
     </Dialog>
@@ -1498,12 +1609,13 @@ function AddStockSheet({
     buyRangeStart: "",
     buyRangeEnd: "",
     targetPrice: "",
-    profitGoal: "",
     stopLoss: "",
+    duration: "",
+    durationUnit: "Days",
+    theme: "",
     rationale: "",
     publishMode: "draft" as "draft" | "watchlist" | "live",
     isPublished: false,
-    usePercentage: false,
   });
 
   const mutation = useMutation({
@@ -1522,12 +1634,13 @@ function AddStockSheet({
         buyRangeStart: "",
         buyRangeEnd: "",
         targetPrice: "",
-        profitGoal: "",
         stopLoss: "",
+        duration: "",
+        durationUnit: "Days",
+        theme: "",
         rationale: "",
         publishMode: "draft",
         isPublished: false,
-        usePercentage: false,
       });
     },
     onError: (err: any) => {
@@ -1548,8 +1661,10 @@ function AddStockSheet({
       buyRangeStart: form.buyRangeStart || undefined,
       buyRangeEnd: form.buyRangeEnd || undefined,
       targetPrice: form.targetPrice || undefined,
-      profitGoal: form.profitGoal || undefined,
       stopLoss: form.stopLoss || undefined,
+      duration: form.duration ? parseInt(form.duration) : undefined,
+      durationUnit: form.duration ? form.durationUnit : undefined,
+      theme: form.theme || undefined,
     });
   };
 
@@ -1613,23 +1728,6 @@ function AddStockSheet({
               data-testid="input-target-price"
             />
           </div>
-          <div className="flex items-center gap-2">
-            <Checkbox
-              checked={form.usePercentage}
-              onCheckedChange={(v) => setForm({ ...form, usePercentage: !!v })}
-              data-testid="checkbox-percentage"
-            />
-            <Label className="text-sm">Profit Goal {form.usePercentage ? "%" : ""}</Label>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Profit Goal</Label>
-            <Input
-              value={form.profitGoal}
-              onChange={(e) => setForm({ ...form, profitGoal: e.target.value })}
-              placeholder={form.usePercentage ? "%" : ""}
-              data-testid="input-profit-goal"
-            />
-          </div>
           <div className="space-y-1.5">
             <Label>Stop Loss</Label>
             <Input
@@ -1639,6 +1737,45 @@ function AddStockSheet({
               onChange={(e) => setForm({ ...form, stopLoss: e.target.value })}
               data-testid="input-stop-loss"
             />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Duration</Label>
+            <div className="flex gap-2">
+              <Input
+                type="number"
+                value={form.duration}
+                onChange={(e) => setForm({ ...form, duration: e.target.value })}
+                placeholder="e.g. 3"
+                className="flex-1"
+                data-testid="input-duration"
+              />
+              <Select value={form.durationUnit} onValueChange={(v) => setForm({ ...form, durationUnit: v })}>
+                <SelectTrigger className="w-[120px]" data-testid="select-duration-unit">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Days">Days</SelectItem>
+                  <SelectItem value="Weeks">Weeks</SelectItem>
+                  <SelectItem value="Months">Months</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Theme</Label>
+            <Select value={form.theme} onValueChange={(v) => setForm({ ...form, theme: v })}>
+              <SelectTrigger data-testid="select-theme">
+                <SelectValue placeholder="Select theme" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="BTST">BTST</SelectItem>
+                <SelectItem value="Momentum">Momentum</SelectItem>
+                <SelectItem value="High Volatility">High Volatility</SelectItem>
+                <SelectItem value="Short Term">Short Term</SelectItem>
+                <SelectItem value="Medium Term">Medium Term</SelectItem>
+                <SelectItem value="Long Term">Long Term</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-1.5">
             <Label>Rationale <span className="text-destructive">*</span></Label>
@@ -1702,6 +1839,9 @@ function AddPositionSheet({
     lots: "",
     target: "",
     stopLoss: "",
+    duration: "",
+    durationUnit: "Days",
+    theme: "",
     rationale: "",
     isPublished: false,
     publishMode: "draft" as "draft" | "watchlist" | "live",
@@ -1743,6 +1883,9 @@ function AddPositionSheet({
       lots: form.lots ? parseInt(form.lots) : undefined,
       target: form.target || undefined,
       stopLoss: form.stopLoss || undefined,
+      duration: form.duration ? parseInt(form.duration) : undefined,
+      durationUnit: form.duration ? form.durationUnit : undefined,
+      theme: form.theme || undefined,
     });
   };
 
@@ -1990,6 +2133,45 @@ function AddPositionSheet({
               onChange={(e) => setForm({ ...form, stopLoss: e.target.value })}
               data-testid="input-position-stop-loss"
             />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Duration</Label>
+            <div className="flex gap-2">
+              <Input
+                type="number"
+                value={form.duration}
+                onChange={(e) => setForm({ ...form, duration: e.target.value })}
+                placeholder="e.g. 3"
+                className="flex-1"
+                data-testid="input-position-duration"
+              />
+              <Select value={form.durationUnit} onValueChange={(v) => setForm({ ...form, durationUnit: v })}>
+                <SelectTrigger className="w-[120px]" data-testid="select-position-duration-unit">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Days">Days</SelectItem>
+                  <SelectItem value="Weeks">Weeks</SelectItem>
+                  <SelectItem value="Months">Months</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Theme</Label>
+            <Select value={form.theme} onValueChange={(v) => setForm({ ...form, theme: v })}>
+              <SelectTrigger data-testid="select-position-theme">
+                <SelectValue placeholder="Select theme" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="BTST">BTST</SelectItem>
+                <SelectItem value="Momentum">Momentum</SelectItem>
+                <SelectItem value="High Volatility">High Volatility</SelectItem>
+                <SelectItem value="Short Term">Short Term</SelectItem>
+                <SelectItem value="Medium Term">Medium Term</SelectItem>
+                <SelectItem value="Long Term">Long Term</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-1.5">
             <Label>Rationale <span className="text-destructive">*</span></Label>
