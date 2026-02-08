@@ -86,7 +86,7 @@ export async function verifyAadhaarOtp(referenceId: number | string, otp: string
     method: "POST",
     headers: getHeaders(token),
     body: JSON.stringify({
-      "@entity": "in.co.sandbox.kyc.aadhaar.okyc",
+      "@entity": "in.co.sandbox.kyc.aadhaar.okyc.request",
       reference_id: String(referenceId),
       otp: otp,
     }),
