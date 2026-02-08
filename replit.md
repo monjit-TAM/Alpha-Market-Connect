@@ -37,9 +37,12 @@ AlphaMarket utilizes a modern web application architecture with a clear separati
 - **Symbol Autocomplete:** NSE/BSE/MCX symbol autocomplete for stock and position entry.
 - **Risk Profiling:** Optional per-advisor feature (toggle in Profile > Settings tab). When enabled, investors must complete an 8-section questionnaire after subscribing. Dual-scoring system: capacity score (60% weight from financial metrics) + tolerance score (40% weight from experience/attitude) = overall 0-100 score mapped to 5 risk categories (Conservative, Moderately Conservative, Moderate, Aggressive, Very Aggressive). Risk profiles visible to advisors via clickable "View" in Customers Acquired section. Routes: `/risk-profiling?subscriptionId=X`. API: `POST /api/risk-profiles`, `GET /api/risk-profiles/:subscriptionId`, `GET /api/risk-profiling/check`, `PATCH /api/advisor/settings/risk-profiling`.
 
+- **Web Push Notifications:** Browser push notifications using Web Push API with VAPID keys. Service worker at `client/public/sw.js`. Notification bell component in navbar. Strategy-specific notifications sent to subscribers on: new call published, new position added, stop loss/target update, call/position closed. Admin broadcast notifications via Settings page. API: `GET /api/notifications/vapid-key`, `POST /api/notifications/subscribe`, `DELETE /api/notifications/subscribe`, `GET /api/notifications/recent`, `POST /api/admin/notifications`. Tables: `push_subscriptions`, `notifications`. Helper: `server/push.ts`.
+
 ## External Dependencies
 - **Database:** PostgreSQL (via Neon)
 - **Payment Gateway:** Cashfree Payment Gateway (using `cashfree-pg SDK v5`)
 - **Email Service:** SendGrid (for email notifications)
 - **Object Storage:** Replit Object Storage (for SEBI certificate file uploads)
 - **Market Data API:** Groww API (for live market prices, option chain data)
+- **Web Push:** `web-push` npm library for server-side push notification delivery with VAPID authentication

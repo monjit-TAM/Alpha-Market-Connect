@@ -10,6 +10,7 @@ import { getLiveQuote, getLivePrices, setGrowwAccessToken, getGrowwTokenStatus, 
 import type { Plan } from "@shared/schema";
 import nseSymbols from "./data/nse-symbols.json";
 import { createCashfreeOrder, fetchCashfreeOrder, fetchCashfreePayments, verifyCashfreeWebhook } from "./cashfree";
+import { notifyStrategySubscribers, notifyAllUsers, notifyAllVisitors, vapidPublicKey, pushEnabled } from "./push";
 
 const scryptAsync = promisify(scrypt);
 
@@ -875,6 +876,18 @@ export async function registerRoutes(
         publishMode,
         isPublished,
       });
+      if (isPublished) {
+        const strategy = await storage.getStrategy(req.params.id);
+        if (strategy) {
+          notifyStrategySubscribers(req.params.id, strategy.name, "new_call", {
+            title: `New Call: ${c.stockName}`,
+            body: `${c.action} ${c.stockName} - ${strategy.name}`,
+            tag: `call-${c.id}`,
+            url: `/strategies/${req.params.id}`,
+            data: { strategyId: req.params.id, callId: c.id },
+          });
+        }
+      }
       res.json(c);
     } catch (err: any) {
       res.status(500).send(err.message);
@@ -898,6 +911,18 @@ export async function registerRoutes(
         publishMode,
         isPublished,
       });
+      if (isPublished) {
+        const strategy = await storage.getStrategy(req.params.id);
+        if (strategy) {
+          notifyStrategySubscribers(req.params.id, strategy.name, "new_position", {
+            title: `New Position: ${p.symbol || p.segment}`,
+            body: `${p.buySell} ${p.symbol || p.segment} - ${strategy.name}`,
+            tag: `position-${p.id}`,
+            url: `/strategies/${req.params.id}`,
+            data: { strategyId: req.params.id, positionId: p.id },
+          });
+        }
+      }
       res.json(p);
     } catch (err: any) {
       res.status(500).send(err.message);
@@ -947,6 +972,20 @@ export async function registerRoutes(
         ...(stopLoss !== undefined ? { stopLoss } : {}),
         ...(rationale !== undefined ? { rationale } : {}),
       });
+      if (call.isPublished && (targetPrice !== undefined || stopLoss !== undefined)) {
+        const changes: string[] = [];
+        if (stopLoss !== undefined && stopLoss !== call.stopLoss) changes.push(`SL: ${stopLoss}`);
+        if (targetPrice !== undefined && targetPrice !== call.targetPrice) changes.push(`Target: ${targetPrice}`);
+        if (changes.length > 0) {
+          notifyStrategySubscribers(call.strategyId, strategy.name, "call_update", {
+            title: `Alert: ${call.stockName} Updated`,
+            body: `${changes.join(", ")} - ${strategy.name}`,
+            tag: `call-update-${call.id}`,
+            url: `/strategies/${call.strategyId}`,
+            data: { strategyId: call.strategyId, callId: call.id },
+          });
+        }
+      }
       res.json(updated);
     } catch (err: any) {
       res.status(500).send(err.message);
@@ -979,6 +1018,17 @@ export async function registerRoutes(
         gainPercent,
         exitDate: new Date(),
       });
+      if (call.isPublished) {
+        const gain = Number(gainPercent);
+        const emoji = gain >= 0 ? "Profit" : "Loss";
+        notifyStrategySubscribers(call.strategyId, strategy.name, "call_closed", {
+          title: `Call Closed: ${call.stockName}`,
+          body: `${emoji} ${Math.abs(gain)}% | Exit at ${exitPrice} - ${strategy.name}`,
+          tag: `call-close-${call.id}`,
+          url: `/strategies/${call.strategyId}`,
+          data: { strategyId: call.strategyId, callId: call.id },
+        });
+      }
       res.json(updated);
     } catch (err: any) {
       res.status(500).send(err.message);
@@ -1002,6 +1052,13 @@ export async function registerRoutes(
       const updated = await storage.updateCall(call.id, {
         publishMode: "live",
         isPublished: true,
+      });
+      notifyStrategySubscribers(call.strategyId, strategy.name, "new_call", {
+        title: `New Call: ${call.stockName}`,
+        body: `${call.action} ${call.stockName} - ${strategy.name}`,
+        tag: `call-${call.id}`,
+        url: `/strategies/${call.strategyId}`,
+        data: { strategyId: call.strategyId, callId: call.id },
       });
       res.json(updated);
     } catch (err: any) {
@@ -1027,6 +1084,13 @@ export async function registerRoutes(
         publishMode: "live",
         isPublished: true,
       });
+      notifyStrategySubscribers(pos.strategyId, strategy.name, "new_position", {
+        title: `New Position: ${pos.symbol || pos.segment}`,
+        body: `${pos.buySell} ${pos.symbol || pos.segment} - ${strategy.name}`,
+        tag: `position-${pos.id}`,
+        url: `/strategies/${pos.strategyId}`,
+        data: { strategyId: pos.strategyId, positionId: pos.id },
+      });
       res.json(updated);
     } catch (err: any) {
       res.status(500).send(err.message);
@@ -1050,6 +1114,20 @@ export async function registerRoutes(
         ...(stopLoss !== undefined ? { stopLoss } : {}),
         ...(rationale !== undefined ? { rationale } : {}),
       });
+      if (pos.isPublished && (target !== undefined || stopLoss !== undefined)) {
+        const changes: string[] = [];
+        if (stopLoss !== undefined && stopLoss !== pos.stopLoss) changes.push(`SL: ${stopLoss}`);
+        if (target !== undefined && target !== pos.target) changes.push(`Target: ${target}`);
+        if (changes.length > 0) {
+          notifyStrategySubscribers(pos.strategyId, strategy.name, "position_update", {
+            title: `Alert: ${pos.symbol || pos.segment} Updated`,
+            body: `${changes.join(", ")} - ${strategy.name}`,
+            tag: `position-update-${pos.id}`,
+            url: `/strategies/${pos.strategyId}`,
+            data: { strategyId: pos.strategyId, positionId: pos.id },
+          });
+        }
+      }
       res.json(updated);
     } catch (err: any) {
       res.status(500).send(err.message);
@@ -1081,6 +1159,17 @@ export async function registerRoutes(
         exitDate: new Date(),
         gainPercent: gainPercent,
       });
+      if (pos.isPublished) {
+        const gain = Number(gainPercent || 0);
+        const result = gain >= 0 ? "Profit" : "Loss";
+        notifyStrategySubscribers(pos.strategyId, strategy.name, "position_closed", {
+          title: `Position Closed: ${pos.symbol || pos.segment}`,
+          body: `${result} ${Math.abs(gain)}% | Exit at ${exitPx} - ${strategy.name}`,
+          tag: `position-close-${pos.id}`,
+          url: `/strategies/${pos.strategyId}`,
+          data: { strategyId: pos.strategyId, positionId: pos.id },
+        });
+      }
       res.json(updated);
     } catch (err: any) {
       res.status(500).send(err.message);
@@ -1759,6 +1848,79 @@ export async function registerRoutes(
         return res.status(403).send("Access denied");
       }
       res.json(rp);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.get("/api/notifications/vapid-key", (req, res) => {
+    if (!pushEnabled || !vapidPublicKey) {
+      return res.status(503).json({ error: "Push notifications not configured" });
+    }
+    res.json({ publicKey: vapidPublicKey });
+  });
+
+  app.post("/api/notifications/subscribe", async (req, res) => {
+    try {
+      const { subscription } = req.body;
+      if (!subscription || !subscription.endpoint || !subscription.keys) {
+        return res.status(400).send("Invalid push subscription");
+      }
+      const userId = req.session?.userId || null;
+      await storage.createPushSubscription({
+        userId,
+        endpoint: subscription.endpoint,
+        p256dh: subscription.keys.p256dh,
+        auth: subscription.keys.auth,
+      });
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.delete("/api/notifications/subscribe", async (req, res) => {
+    try {
+      const { endpoint } = req.body;
+      if (!endpoint) return res.status(400).send("Endpoint required");
+      await storage.deletePushSubscription(endpoint);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.get("/api/notifications/recent", requireAuth, async (req, res) => {
+    try {
+      const allNotifications = await storage.getRecentNotifications(100);
+      const userSubs = await storage.getSubscriptionsByUserId(req.session.userId!);
+      const subscribedStrategyIds = new Set(userSubs.filter(s => s.status === "active" && s.strategyId).map(s => s.strategyId));
+
+      const filtered = allNotifications.filter(n => {
+        if (n.targetScope === "all_users" || n.targetScope === "all_visitors") return true;
+        if (n.targetScope === "strategy_subscribers" && n.strategyId) {
+          return subscribedStrategyIds.has(n.strategyId);
+        }
+        return false;
+      });
+      res.json(filtered.slice(0, 50));
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.post("/api/admin/notifications", requireAdmin, async (req, res) => {
+    try {
+      const { title, body, url, scope } = req.body;
+      if (!title || !body) return res.status(400).send("Title and body required");
+
+      const payload = { title, body, url: url || "/", tag: "admin-alert", data: { url: url || "/" } };
+      if (scope === "all_visitors") {
+        await notifyAllVisitors(payload);
+      } else {
+        await notifyAllUsers(payload);
+      }
+      res.json({ success: true });
     } catch (err: any) {
       res.status(500).send(err.message);
     }

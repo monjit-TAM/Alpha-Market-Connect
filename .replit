@@ -45,3 +45,8 @@ integrations = ["javascript_object_storage:2.0.0", "sendgrid:1.0.0"]
 
 [userenv.production]
 SITE_DOMAIN = "alphamarket.co.in"
+
+[userenv.shared]
+VAPID_PUBLIC_KEY = "BAZ8RmKaEXw72g2eQxIV4D1kC6dGzFNZcP3fBkVFPiPCV-9i-xUDV7vlOqlLk9u5e0KpG57CB44WK4HZMUJvggg"
+VAPID_PRIVATE_KEY = "xjb00PHZ-iIpDr-3Fk9Zaqh4HwsDJHAG0OAmQ_8z9YQ"
+VAPID_SUBJECT = "mailto:admin@alphamarket.com"

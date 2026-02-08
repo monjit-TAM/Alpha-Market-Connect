@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle, XCircle, Clock, Key, RefreshCw } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { CheckCircle, XCircle, Clock, Key, RefreshCw, Bell, Send } from "lucide-react";
 
 interface TokenStatus {
   hasToken: boolean;
@@ -20,6 +22,10 @@ interface TokenStatus {
 export default function AdminSettings() {
   const { toast } = useToast();
   const [token, setToken] = useState("");
+  const [notifTitle, setNotifTitle] = useState("");
+  const [notifBody, setNotifBody] = useState("");
+  const [notifUrl, setNotifUrl] = useState("");
+  const [notifScope, setNotifScope] = useState("all_users");
 
   const { data: tokenStatus, isLoading } = useQuery<TokenStatus>({
     queryKey: ["/api/admin/groww-token-status"],
@@ -149,6 +155,86 @@ export default function AdminSettings() {
               )}
             </Button>
           </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Bell className="w-5 h-5 text-muted-foreground" />
+            <CardTitle className="text-lg">Broadcast Notifications</CardTitle>
+          </div>
+          <CardDescription>
+            Send push notifications to all registered users or all visitors including non-logged-in users.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="notif-title">Title</Label>
+            <Input
+              id="notif-title"
+              placeholder="Notification title..."
+              value={notifTitle}
+              onChange={(e) => setNotifTitle(e.target.value)}
+              data-testid="input-notif-title"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="notif-body">Message</Label>
+            <Textarea
+              id="notif-body"
+              placeholder="Notification message..."
+              value={notifBody}
+              onChange={(e) => setNotifBody(e.target.value)}
+              rows={3}
+              data-testid="input-notif-body"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="notif-url">Link URL (optional)</Label>
+            <Input
+              id="notif-url"
+              placeholder="/strategies or https://..."
+              value={notifUrl}
+              onChange={(e) => setNotifUrl(e.target.value)}
+              data-testid="input-notif-url"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Audience</Label>
+            <Select value={notifScope} onValueChange={setNotifScope}>
+              <SelectTrigger data-testid="select-notif-scope">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all_users">All Registered Users</SelectItem>
+                <SelectItem value="all_visitors">All Users + Visitors</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <Button
+            disabled={!notifTitle.trim() || !notifBody.trim()}
+            onClick={async () => {
+              try {
+                await apiRequest("POST", "/api/admin/notifications", {
+                  title: notifTitle.trim(),
+                  body: notifBody.trim(),
+                  url: notifUrl.trim() || "/",
+                  scope: notifScope,
+                });
+                toast({ title: "Notification Sent", description: "Broadcast notification sent successfully." });
+                setNotifTitle("");
+                setNotifBody("");
+                setNotifUrl("");
+              } catch (err: any) {
+                toast({ title: "Error", description: err.message || "Failed to send notification", variant: "destructive" });
+              }
+            }}
+            data-testid="button-send-notification"
+          >
+            <Send className="w-4 h-4 mr-1" />
+            Send Notification
+          </Button>
         </CardContent>
       </Card>
     </div>

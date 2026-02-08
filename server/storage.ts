@@ -2,7 +2,7 @@ import { db } from "./db";
 import { eq, and, desc, sql } from "drizzle-orm";
 import {
   users, strategies, calls, positions, plans, subscriptions, content, scores, passwordResetTokens, payments,
-  watchlist, advisorQuestions, riskProfiles,
+  watchlist, advisorQuestions, riskProfiles, pushSubscriptions, notifications,
   type User, type InsertUser,
   type Strategy, type InsertStrategy,
   type Call, type InsertCall,
@@ -15,6 +15,8 @@ import {
   type Watchlist, type InsertWatchlist,
   type AdvisorQuestion, type InsertAdvisorQuestion,
   type RiskProfile, type InsertRiskProfile,
+  type PushSubscription, type InsertPushSubscription,
+  type Notification, type InsertNotification,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -99,6 +101,15 @@ export interface IStorage {
   getRiskProfilesByAdvisor(advisorId: string): Promise<RiskProfile[]>;
   getRiskProfileByUser(userId: string, subscriptionId: string): Promise<RiskProfile | undefined>;
   getSubscription(id: string): Promise<Subscription | undefined>;
+
+  createPushSubscription(data: InsertPushSubscription): Promise<PushSubscription>;
+  deletePushSubscription(endpoint: string): Promise<void>;
+  getPushSubscriptionsByUser(userId: string): Promise<PushSubscription[]>;
+  getAllPushSubscriptions(): Promise<PushSubscription[]>;
+  getActiveSubscriptionsByStrategy(strategyId: string): Promise<Subscription[]>;
+  getPushSubscriptionsForUserIds(userIds: string[]): Promise<PushSubscription[]>;
+  createNotification(data: InsertNotification): Promise<Notification>;
+  getRecentNotifications(limit?: number): Promise<Notification[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -541,6 +552,53 @@ export class DatabaseStorage implements IStorage {
   async getSubscription(id: string): Promise<Subscription | undefined> {
     const [s] = await db.select().from(subscriptions).where(eq(subscriptions.id, id));
     return s;
+  }
+
+  async createPushSubscription(data: InsertPushSubscription): Promise<PushSubscription> {
+    const existing = await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.endpoint, data.endpoint));
+    if (existing.length > 0) {
+      const [updated] = await db.update(pushSubscriptions).set({ userId: data.userId, p256dh: data.p256dh, auth: data.auth }).where(eq(pushSubscriptions.endpoint, data.endpoint)).returning();
+      return updated;
+    }
+    const [ps] = await db.insert(pushSubscriptions).values(data).returning();
+    return ps;
+  }
+
+  async deletePushSubscription(endpoint: string): Promise<void> {
+    await db.delete(pushSubscriptions).where(eq(pushSubscriptions.endpoint, endpoint));
+  }
+
+  async getPushSubscriptionsByUser(userId: string): Promise<PushSubscription[]> {
+    return db.select().from(pushSubscriptions).where(eq(pushSubscriptions.userId, userId));
+  }
+
+  async getAllPushSubscriptions(): Promise<PushSubscription[]> {
+    return db.select().from(pushSubscriptions);
+  }
+
+  async getActiveSubscriptionsByStrategy(strategyId: string): Promise<Subscription[]> {
+    return db.select().from(subscriptions).where(
+      and(eq(subscriptions.strategyId, strategyId), eq(subscriptions.status, "active"))
+    );
+  }
+
+  async getPushSubscriptionsForUserIds(userIds: string[]): Promise<PushSubscription[]> {
+    if (userIds.length === 0) return [];
+    const results: PushSubscription[] = [];
+    for (const uid of userIds) {
+      const subs = await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.userId, uid));
+      results.push(...subs);
+    }
+    return results;
+  }
+
+  async createNotification(data: InsertNotification): Promise<Notification> {
+    const [n] = await db.insert(notifications).values(data).returning();
+    return n;
+  }
+
+  async getRecentNotifications(limit = 50): Promise<Notification[]> {
+    return db.select().from(notifications).orderBy(desc(notifications.createdAt)).limit(limit);
   }
 }
 

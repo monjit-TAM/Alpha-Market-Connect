@@ -11,6 +11,7 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ChevronDown, User, LogOut, LayoutDashboard, ShieldCheck } from "lucide-react";
 import logoImg from "@assets/Alphamarket_Logo_without_Background_1770374165590.png";
+import { NotificationBell } from "./notification-bell";
 
 export function Navbar() {
   const { user, logout } = useAuth();
@@ -45,6 +46,7 @@ export function Navbar() {
         </nav>
 
         <div className="flex items-center gap-2 ml-auto">
+          <NotificationBell />
           {user ? (
             <>
               {user.role === "investor" && (
