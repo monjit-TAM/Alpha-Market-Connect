@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
-import { CheckCircle2, XCircle, Loader2, ShieldCheck } from "lucide-react";
+import { CheckCircle2, XCircle, Loader2, ShieldCheck, Fingerprint } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { Link } from "wouter";
 
@@ -124,6 +124,24 @@ export default function PaymentCallbackPage() {
                     Your subscription has been activated. You now have full access to the strategy's recommendations.
                   </p>
                 </div>
+
+                {subscriptionId && (
+                  <div className="p-4 rounded-md border border-primary/30 bg-primary/5 space-y-2">
+                    <div className="flex items-center justify-center gap-2">
+                      <Fingerprint className="w-5 h-5 text-primary" />
+                      <p className="text-sm font-medium">Complete eKYC Verification</p>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Verify your identity using Aadhaar and PAN to comply with SEBI requirements for advisory services.
+                    </p>
+                    <Link href={`/ekyc?subscriptionId=${subscriptionId}`}>
+                      <Button className="mt-2" data-testid="button-complete-ekyc">
+                        <Fingerprint className="w-4 h-4 mr-1" />
+                        Complete eKYC
+                      </Button>
+                    </Link>
+                  </div>
+                )}
 
                 {riskProfilingRequired && !riskProfilingCompleted && subscriptionId && (
                   <div className="p-4 rounded-md border border-accent/30 bg-accent/5 space-y-2">

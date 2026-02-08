@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { IndianRupee, Users, TrendingUp, FileText, Plus, Download, ShieldCheck } from "lucide-react";
+import { IndianRupee, Users, TrendingUp, FileText, Plus, Download, ShieldCheck, Fingerprint, CheckCircle2, XCircle } from "lucide-react";
 import { Link } from "wouter";
 import { useAuth } from "@/lib/auth";
 import type { Strategy, Call, Subscription, Content as ContentType, RiskProfile } from "@shared/schema";
@@ -128,9 +128,158 @@ function RiskProfileDialog({ subscriptionId, open, onClose }: { subscriptionId: 
   );
 }
 
+interface EkycDetail {
+  subscriptionId: string;
+  investorName: string;
+  investorEmail: string;
+  ekycDone: boolean;
+  aadhaar: {
+    status: string;
+    name: string;
+    last4: string;
+    dob: string;
+    gender: string;
+    address: string;
+    photo: string;
+    verifiedAt: string;
+  } | null;
+  pan: {
+    status: string;
+    number: string;
+    name: string;
+    category: string;
+    aadhaarLinked: boolean;
+    verifiedAt: string;
+  } | null;
+}
+
+function EkycDetailDialog({ subscriptionId, open, onClose }: { subscriptionId: string | null; open: boolean; onClose: () => void }) {
+  const { data: ekyc, isLoading } = useQuery<EkycDetail>({
+    queryKey: ["/api/advisor/ekyc", subscriptionId],
+    enabled: !!subscriptionId && open,
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Fingerprint className="w-4 h-4" />
+            eKYC Verification Details
+          </DialogTitle>
+        </DialogHeader>
+        {isLoading ? (
+          <div className="space-y-2 py-4">
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-4 w-1/2" />
+          </div>
+        ) : ekyc ? (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between p-3 rounded-md border">
+              <div>
+                <p className="text-xs text-muted-foreground">Overall Status</p>
+                <p className="font-semibold" data-testid="text-ekyc-overall-status">{ekyc.ekycDone ? "Verified" : "Incomplete"}</p>
+              </div>
+              {ekyc.ekycDone ? (
+                <CheckCircle2 className="w-6 h-6 text-green-600" />
+              ) : (
+                <XCircle className="w-6 h-6 text-muted-foreground" />
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <div className="p-3 rounded-md border">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-medium">Aadhaar Verification</p>
+                  {ekyc.aadhaar ? (
+                    <Badge variant="secondary" className="text-[10px] bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">Verified</Badge>
+                  ) : (
+                    <Badge variant="secondary" className="text-[10px]">Pending</Badge>
+                  )}
+                </div>
+                {ekyc.aadhaar ? (
+                  <div className="space-y-1.5 text-sm">
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">Name</span>
+                      <span className="font-medium text-right">{ekyc.aadhaar.name || "N/A"}</span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">Aadhaar (Last 4)</span>
+                      <span className="font-medium">XXXX-XXXX-{ekyc.aadhaar.last4}</span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">DOB</span>
+                      <span className="font-medium">{ekyc.aadhaar.dob || "N/A"}</span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">Gender</span>
+                      <span className="font-medium">{ekyc.aadhaar.gender || "N/A"}</span>
+                    </div>
+                    {ekyc.aadhaar.verifiedAt && (
+                      <div className="flex justify-between gap-2">
+                        <span className="text-muted-foreground">Verified On</span>
+                        <span className="font-medium">{new Date(ekyc.aadhaar.verifiedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Not yet verified</p>
+                )}
+              </div>
+
+              <div className="p-3 rounded-md border">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-medium">PAN Verification</p>
+                  {ekyc.pan ? (
+                    <Badge variant="secondary" className="text-[10px] bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">Verified</Badge>
+                  ) : (
+                    <Badge variant="secondary" className="text-[10px]">Pending</Badge>
+                  )}
+                </div>
+                {ekyc.pan ? (
+                  <div className="space-y-1.5 text-sm">
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">Name</span>
+                      <span className="font-medium text-right">{ekyc.pan.name || "N/A"}</span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">PAN</span>
+                      <span className="font-medium">{ekyc.pan.number || "N/A"}</span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">Category</span>
+                      <span className="font-medium">{ekyc.pan.category || "N/A"}</span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">Aadhaar Linked</span>
+                      <span className="font-medium">{ekyc.pan.aadhaarLinked ? "Yes" : "No"}</span>
+                    </div>
+                    {ekyc.pan.verifiedAt && (
+                      <div className="flex justify-between gap-2">
+                        <span className="text-muted-foreground">Verified On</span>
+                        <span className="font-medium">{new Date(ekyc.pan.verifiedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Not yet verified</p>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground py-4 text-center">eKYC details not found</p>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function DashboardHome() {
   const { user } = useAuth();
   const [riskProfileSubId, setRiskProfileSubId] = useState<string | null>(null);
+  const [ekycSubId, setEkycSubId] = useState<string | null>(null);
 
   const { data: strategies, isLoading: loadingStrategies } = useQuery<Strategy[]>({
     queryKey: ["/api/advisor/strategies"],
@@ -314,9 +463,17 @@ export default function DashboardHome() {
                             {sub.strategyName && <p className="text-xs text-muted-foreground mt-0.5">Strategy: {sub.strategyName}</p>}
                           </div>
                           <div className="flex gap-4 items-center">
-                            <span className={`w-16 text-center text-xs font-medium ${sub.ekycDone ? "text-accent" : "text-primary"}`}>
-                              {sub.ekycDone ? "Yes" : "No"}
-                            </span>
+                            {sub.ekycDone ? (
+                              <button
+                                onClick={() => setEkycSubId(sub.id)}
+                                className="w-16 text-center text-xs font-medium text-accent underline cursor-pointer"
+                                data-testid={`button-view-ekyc-${sub.id}`}
+                              >
+                                View
+                              </button>
+                            ) : (
+                              <span className="w-16 text-center text-xs font-medium text-primary">No</span>
+                            )}
                             {sub.riskProfiling ? (
                               <button
                                 onClick={() => setRiskProfileSubId(sub.id)}
@@ -361,9 +518,17 @@ export default function DashboardHome() {
                             {sub.strategyName && <p className="text-xs text-muted-foreground mt-0.5">Strategy: {sub.strategyName}</p>}
                           </div>
                           <div className="flex gap-4 items-center">
-                            <span className={`w-16 text-center text-xs font-medium ${sub.ekycDone ? "text-accent" : "text-primary"}`}>
-                              {sub.ekycDone ? "Yes" : "No"}
-                            </span>
+                            {sub.ekycDone ? (
+                              <button
+                                onClick={() => setEkycSubId(sub.id)}
+                                className="w-16 text-center text-xs font-medium text-accent underline cursor-pointer"
+                                data-testid={`button-view-ekyc-prev-${sub.id}`}
+                              >
+                                View
+                              </button>
+                            ) : (
+                              <span className="w-16 text-center text-xs font-medium text-primary">No</span>
+                            )}
                             {sub.riskProfiling ? (
                               <button
                                 onClick={() => setRiskProfileSubId(sub.id)}
@@ -433,6 +598,11 @@ export default function DashboardHome() {
         subscriptionId={riskProfileSubId}
         open={!!riskProfileSubId}
         onClose={() => setRiskProfileSubId(null)}
+      />
+      <EkycDetailDialog
+        subscriptionId={ekycSubId}
+        open={!!ekycSubId}
+        onClose={() => setEkycSubId(null)}
       />
     </div>
   );

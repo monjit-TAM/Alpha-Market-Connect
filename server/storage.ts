@@ -2,7 +2,7 @@ import { db } from "./db";
 import { eq, and, desc, sql } from "drizzle-orm";
 import {
   users, strategies, calls, positions, plans, subscriptions, content, scores, passwordResetTokens, payments,
-  watchlist, advisorQuestions, riskProfiles, pushSubscriptions, notifications,
+  watchlist, advisorQuestions, riskProfiles, ekycVerifications, pushSubscriptions, notifications,
   type User, type InsertUser,
   type Strategy, type InsertStrategy,
   type Call, type InsertCall,
@@ -15,6 +15,7 @@ import {
   type Watchlist, type InsertWatchlist,
   type AdvisorQuestion, type InsertAdvisorQuestion,
   type RiskProfile, type InsertRiskProfile,
+  type EkycVerification, type InsertEkycVerification,
   type PushSubscription, type InsertPushSubscription,
   type Notification, type InsertNotification,
 } from "@shared/schema";
@@ -101,6 +102,12 @@ export interface IStorage {
   getRiskProfilesByAdvisor(advisorId: string): Promise<RiskProfile[]>;
   getRiskProfileByUser(userId: string, subscriptionId: string): Promise<RiskProfile | undefined>;
   getSubscription(id: string): Promise<Subscription | undefined>;
+
+  createEkycVerification(data: InsertEkycVerification): Promise<EkycVerification>;
+  updateEkycVerification(id: string, data: Partial<EkycVerification>): Promise<EkycVerification>;
+  getEkycBySubscription(subscriptionId: string): Promise<EkycVerification | undefined>;
+  getEkycBySubscriptionAndType(subscriptionId: string, type: string): Promise<EkycVerification | undefined>;
+  getEkycByAdvisor(advisorId: string): Promise<EkycVerification[]>;
 
   createPushSubscription(data: InsertPushSubscription): Promise<PushSubscription>;
   deletePushSubscription(endpoint: string): Promise<void>;
@@ -599,6 +606,38 @@ export class DatabaseStorage implements IStorage {
 
   async getRecentNotifications(limit = 50): Promise<Notification[]> {
     return db.select().from(notifications).orderBy(desc(notifications.createdAt)).limit(limit);
+  }
+
+  async createEkycVerification(data: InsertEkycVerification): Promise<EkycVerification> {
+    const [v] = await db.insert(ekycVerifications).values(data).returning();
+    return v;
+  }
+
+  async updateEkycVerification(id: string, data: Partial<EkycVerification>): Promise<EkycVerification> {
+    const [v] = await db.update(ekycVerifications).set(data).where(eq(ekycVerifications.id, id)).returning();
+    return v;
+  }
+
+  async getEkycBySubscription(subscriptionId: string): Promise<EkycVerification | undefined> {
+    const results = await db.select().from(ekycVerifications)
+      .where(eq(ekycVerifications.subscriptionId, subscriptionId))
+      .orderBy(desc(ekycVerifications.createdAt));
+    return results[0];
+  }
+
+  async getEkycBySubscriptionAndType(subscriptionId: string, type: string): Promise<EkycVerification | undefined> {
+    const results = await db.select().from(ekycVerifications)
+      .where(and(
+        eq(ekycVerifications.subscriptionId, subscriptionId),
+        eq(ekycVerifications.verificationType, type)
+      ));
+    return results[0];
+  }
+
+  async getEkycByAdvisor(advisorId: string): Promise<EkycVerification[]> {
+    return db.select().from(ekycVerifications)
+      .where(eq(ekycVerifications.advisorId, advisorId))
+      .orderBy(desc(ekycVerifications.createdAt));
   }
 }
 

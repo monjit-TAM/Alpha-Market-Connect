@@ -39,6 +39,8 @@ AlphaMarket utilizes a modern web application architecture with a clear separati
 
 - **Web Push Notifications:** Browser push notifications using Web Push API with VAPID keys. Service worker at `client/public/sw.js`. Notification bell component in navbar. Strategy-specific notifications sent to subscribers on: new call published, new position added, stop loss/target update, call/position closed. Admin broadcast notifications via Settings page. API: `GET /api/notifications/vapid-key`, `POST /api/notifications/subscribe`, `DELETE /api/notifications/subscribe`, `GET /api/notifications/recent`, `POST /api/admin/notifications`. Tables: `push_subscriptions`, `notifications`. Helper: `server/push.ts`.
 
+- **eKYC Verification:** Mandatory Aadhaar + PAN verification for investors after subscription payment using Sandbox.co.in API. Two-step flow: Aadhaar OTP verification followed by PAN verification. JWT token caching (22hr) for Sandbox API auth. Stores masked PII (last 4 digits Aadhaar, masked PAN) in `ekyc_verifications` table. `subscription.ekycDone` flag set true only when both verifications complete. Investor dashboard shows "eKYC Pending" banner on unverified subscriptions. Payment callback prompts eKYC before risk profiling. Advisor dashboard "Customers Acquired" section shows clickable "View" for eKYC details dialog. Helper: `server/sandbox-kyc.ts`. Routes: `/ekyc?subscriptionId=X`. API: `POST /api/ekyc/aadhaar/otp`, `POST /api/ekyc/aadhaar/verify`, `POST /api/ekyc/pan/verify`, `GET /api/ekyc/status?subscriptionId=X`, `GET /api/advisor/ekyc/:subscriptionId`. Table: `ekyc_verifications`.
+
 ## External Dependencies
 - **Database:** PostgreSQL (via Neon)
 - **Payment Gateway:** Cashfree Payment Gateway (using `cashfree-pg SDK v5`)
@@ -46,3 +48,4 @@ AlphaMarket utilizes a modern web application architecture with a clear separati
 - **Object Storage:** Replit Object Storage (for SEBI certificate file uploads)
 - **Market Data API:** Groww API (for live market prices, option chain data)
 - **Web Push:** `web-push` npm library for server-side push notification delivery with VAPID authentication
+- **eKYC:** Sandbox.co.in API for Aadhaar OTP verification and PAN verification (credentials in SANDBOX_API_KEY and SANDBOX_API_SECRET)

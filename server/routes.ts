@@ -11,6 +11,7 @@ import type { Plan } from "@shared/schema";
 import nseSymbols from "./data/nse-symbols.json";
 import { createCashfreeOrder, fetchCashfreeOrder, fetchCashfreePayments, verifyCashfreeWebhook } from "./cashfree";
 import { notifyStrategySubscribers, notifyAllUsers, notifyAllVisitors, vapidPublicKey, pushEnabled } from "./push";
+import { sendAadhaarOtp, verifyAadhaarOtp, verifyPan, isSandboxConfigured } from "./sandbox-kyc";
 
 const scryptAsync = promisify(scrypt);
 
@@ -1848,6 +1849,226 @@ export async function registerRoutes(
         return res.status(403).send("Access denied");
       }
       res.json(rp);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  // ─── eKYC Routes ───
+
+  app.get("/api/ekyc/configured", (req, res) => {
+    res.json({ configured: isSandboxConfigured() });
+  });
+
+  app.get("/api/ekyc/status", requireAuth, async (req, res) => {
+    try {
+      const { subscriptionId } = req.query;
+      if (!subscriptionId) return res.status(400).send("subscriptionId required");
+
+      const sub = await storage.getSubscription(subscriptionId as string);
+      if (!sub) return res.status(404).send("Subscription not found");
+      if (sub.userId !== req.session.userId) return res.status(403).send("Not authorized");
+
+      const aadhaarVerification = await storage.getEkycBySubscriptionAndType(subscriptionId as string, "aadhaar");
+      const panVerification = await storage.getEkycBySubscriptionAndType(subscriptionId as string, "pan");
+
+      res.json({
+        subscriptionId: sub.id,
+        ekycDone: sub.ekycDone,
+        aadhaar: aadhaarVerification ? {
+          status: aadhaarVerification.status,
+          name: aadhaarVerification.aadhaarName,
+          last4: aadhaarVerification.aadhaarLast4,
+          verifiedAt: aadhaarVerification.verifiedAt,
+        } : null,
+        pan: panVerification ? {
+          status: panVerification.status,
+          panNumber: panVerification.panNumber,
+          panName: panVerification.panName,
+          verifiedAt: panVerification.verifiedAt,
+        } : null,
+      });
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.post("/api/ekyc/aadhaar/otp", requireAuth, async (req, res) => {
+    try {
+      const { subscriptionId, aadhaarNumber } = req.body;
+      if (!subscriptionId || !aadhaarNumber) return res.status(400).send("subscriptionId and aadhaarNumber required");
+      if (!/^\d{12}$/.test(aadhaarNumber)) return res.status(400).send("Invalid Aadhaar number format");
+
+      const sub = await storage.getSubscription(subscriptionId);
+      if (!sub) return res.status(404).send("Subscription not found");
+      if (sub.userId !== req.session.userId) return res.status(403).send("Not authorized");
+
+      const result = await sendAadhaarOtp(aadhaarNumber);
+
+      const existing = await storage.getEkycBySubscriptionAndType(subscriptionId, "aadhaar");
+      if (existing) {
+        await storage.updateEkycVerification(existing.id, {
+          status: "otp_sent",
+          aadhaarRefId: String(result.referenceId),
+          aadhaarTransactionId: result.transactionId,
+          aadhaarLast4: aadhaarNumber.slice(-4),
+        });
+      } else {
+        await storage.createEkycVerification({
+          subscriptionId,
+          userId: sub.userId,
+          advisorId: sub.advisorId,
+          verificationType: "aadhaar",
+          status: "otp_sent",
+          aadhaarRefId: String(result.referenceId),
+          aadhaarTransactionId: result.transactionId,
+          aadhaarLast4: aadhaarNumber.slice(-4),
+        });
+      }
+
+      res.json({ success: true, message: result.message, referenceId: result.referenceId });
+    } catch (err: any) {
+      console.error("[eKYC] Aadhaar OTP error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/ekyc/aadhaar/verify", requireAuth, async (req, res) => {
+    try {
+      const { subscriptionId, referenceId, otp } = req.body;
+      if (!subscriptionId || !referenceId || !otp) return res.status(400).send("subscriptionId, referenceId and otp required");
+
+      const sub = await storage.getSubscription(subscriptionId);
+      if (!sub) return res.status(404).send("Subscription not found");
+      if (sub.userId !== req.session.userId) return res.status(403).send("Not authorized");
+
+      const result = await verifyAadhaarOtp(Number(referenceId), otp);
+
+      const existing = await storage.getEkycBySubscriptionAndType(subscriptionId, "aadhaar");
+      if (existing) {
+        await storage.updateEkycVerification(existing.id, {
+          status: "verified",
+          aadhaarName: result.name,
+          aadhaarDob: result.dob,
+          aadhaarGender: result.gender,
+          aadhaarAddress: result.address,
+          aadhaarPhoto: result.photo,
+          aadhaarTransactionId: result.transactionId,
+          verifiedAt: new Date(),
+        });
+      }
+
+      const panVerification = await storage.getEkycBySubscriptionAndType(subscriptionId, "pan");
+      if (panVerification?.status === "verified") {
+        await storage.updateSubscription(sub.id, { ekycDone: true });
+      }
+
+      res.json({
+        success: true,
+        name: result.name,
+        dob: result.dob,
+        gender: result.gender,
+      });
+    } catch (err: any) {
+      console.error("[eKYC] Aadhaar verify error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/ekyc/pan/verify", requireAuth, async (req, res) => {
+    try {
+      const { subscriptionId, pan, nameAsPan, dateOfBirth } = req.body;
+      if (!subscriptionId || !pan) return res.status(400).send("subscriptionId and pan required");
+      if (!/^[A-Z]{5}[0-9]{4}[A-Z]$/i.test(pan)) return res.status(400).send("Invalid PAN format");
+
+      const sub = await storage.getSubscription(subscriptionId);
+      if (!sub) return res.status(404).send("Subscription not found");
+      if (sub.userId !== req.session.userId) return res.status(403).send("Not authorized");
+
+      const result = await verifyPan(pan, nameAsPan || "", dateOfBirth || "");
+
+      const maskedPan = pan.slice(0, 2) + "****" + pan.slice(-2);
+
+      const existing = await storage.getEkycBySubscriptionAndType(subscriptionId, "pan");
+      if (existing) {
+        await storage.updateEkycVerification(existing.id, {
+          status: result.status === "valid" ? "verified" : "failed",
+          panNumber: maskedPan,
+          panStatus: result.status,
+          panName: result.pan,
+          panCategory: result.category,
+          panAadhaarLinked: result.aadhaarLinked,
+          verifiedAt: result.status === "valid" ? new Date() : null,
+        });
+      } else {
+        await storage.createEkycVerification({
+          subscriptionId,
+          userId: sub.userId,
+          advisorId: sub.advisorId,
+          verificationType: "pan",
+          status: result.status === "valid" ? "verified" : "failed",
+          panNumber: maskedPan,
+          panStatus: result.status,
+          panName: result.pan,
+          panCategory: result.category,
+          panAadhaarLinked: result.aadhaarLinked,
+        });
+      }
+
+      const aadhaarVerification = await storage.getEkycBySubscriptionAndType(subscriptionId, "aadhaar");
+      if (aadhaarVerification?.status === "verified" && result.status === "valid") {
+        await storage.updateSubscription(sub.id, { ekycDone: true });
+      }
+
+      res.json({
+        success: true,
+        status: result.status,
+        category: result.category,
+        nameMatch: result.nameMatch,
+        dobMatch: result.dobMatch,
+        aadhaarLinked: result.aadhaarLinked,
+      });
+    } catch (err: any) {
+      console.error("[eKYC] PAN verify error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/advisor/ekyc/:subscriptionId", requireAdvisor, async (req, res) => {
+    try {
+      const { subscriptionId } = req.params;
+      const sub = await storage.getSubscription(subscriptionId);
+      if (!sub) return res.status(404).send("Subscription not found");
+      if (sub.advisorId !== req.session.userId) return res.status(403).send("Not authorized");
+
+      const aadhaarV = await storage.getEkycBySubscriptionAndType(subscriptionId, "aadhaar");
+      const panV = await storage.getEkycBySubscriptionAndType(subscriptionId, "pan");
+      const user = await storage.getUser(sub.userId);
+
+      res.json({
+        subscriptionId,
+        investorName: user?.username || "Unknown",
+        investorEmail: user?.email || "",
+        ekycDone: sub.ekycDone,
+        aadhaar: aadhaarV ? {
+          status: aadhaarV.status,
+          name: aadhaarV.aadhaarName,
+          last4: aadhaarV.aadhaarLast4,
+          dob: aadhaarV.aadhaarDob,
+          gender: aadhaarV.aadhaarGender,
+          address: aadhaarV.aadhaarAddress,
+          photo: aadhaarV.aadhaarPhoto,
+          verifiedAt: aadhaarV.verifiedAt,
+        } : null,
+        pan: panV ? {
+          status: panV.status,
+          number: panV.panNumber,
+          name: panV.panName,
+          category: panV.panCategory,
+          aadhaarLinked: panV.panAadhaarLinked,
+          verifiedAt: panV.verifiedAt,
+        } : null,
+      });
     } catch (err: any) {
       res.status(500).send(err.message);
     }

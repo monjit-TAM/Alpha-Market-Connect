@@ -8,7 +8,7 @@ import { Footer } from "@/components/footer";
 import { useAuth } from "@/lib/auth";
 import { useLocation, Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
-import { TrendingUp, TrendingDown, ArrowUp, ArrowDown, Calendar, Shield, Zap, BarChart3, Eye, Heart, Bell, X } from "lucide-react";
+import { TrendingUp, TrendingDown, ArrowUp, ArrowDown, Calendar, Shield, Zap, BarChart3, Eye, Heart, Bell, X, Fingerprint } from "lucide-react";
 import type { Call, Position, Subscription, User, Strategy } from "@shared/schema";
 import { apiRequest, queryClient as qc } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -235,12 +235,26 @@ export default function InvestorDashboard() {
                           <p className="font-medium">{Number(sub.strategyCagr) || 0}%</p>
                         </div>
                       </div>
+                      {sub.status === "active" && !sub.ekycDone && (
+                        <Link href={`/ekyc?subscriptionId=${sub.id}`}>
+                          <div className="flex items-center gap-2 p-2 rounded-md bg-primary/5 border border-primary/20 cursor-pointer hover-elevate" data-testid={`banner-ekyc-pending-${sub.id}`}>
+                            <Fingerprint className="w-4 h-4 text-primary shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-medium">eKYC Pending</p>
+                              <p className="text-[10px] text-muted-foreground">Complete Aadhaar & PAN verification</p>
+                            </div>
+                          </div>
+                        </Link>
+                      )}
                       <div className="flex items-center justify-between text-xs pt-1 border-t">
                         <div className="text-muted-foreground">
                           <Calendar className="w-3 h-3 inline mr-1" />
                           Subscribed: {sub.createdAt ? new Date(sub.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "--"}
                         </div>
-                        <Badge variant="secondary" className="text-[10px]">{sub.status}</Badge>
+                        <div className="flex items-center gap-1.5">
+                          {sub.ekycDone && <Badge variant="secondary" className="text-[10px] bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">KYC Done</Badge>}
+                          <Badge variant="secondary" className="text-[10px]">{sub.status}</Badge>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>

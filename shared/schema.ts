@@ -252,6 +252,31 @@ export const riskProfiles = pgTable("risk_profiles", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const ekycVerifications = pgTable("ekyc_verifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  subscriptionId: varchar("subscription_id").notNull().references(() => subscriptions.id),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  advisorId: varchar("advisor_id").notNull().references(() => users.id),
+  verificationType: text("verification_type").notNull(),
+  status: text("status").notNull().default("pending"),
+  aadhaarRefId: text("aadhaar_ref_id"),
+  aadhaarTransactionId: text("aadhaar_transaction_id"),
+  aadhaarLast4: text("aadhaar_last4"),
+  aadhaarName: text("aadhaar_name"),
+  aadhaarDob: text("aadhaar_dob"),
+  aadhaarGender: text("aadhaar_gender"),
+  aadhaarAddress: text("aadhaar_address"),
+  aadhaarPhoto: text("aadhaar_photo"),
+  panNumber: text("pan_number"),
+  panStatus: text("pan_status"),
+  panName: text("pan_name"),
+  panCategory: text("pan_category"),
+  panAadhaarLinked: boolean("pan_aadhaar_linked"),
+  rawResponse: jsonb("raw_response"),
+  verifiedAt: timestamp("verified_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const pushSubscriptions = pgTable("push_subscriptions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").references(() => users.id),
@@ -272,6 +297,7 @@ export const notifications = pgTable("notifications", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const insertEkycVerificationSchema = createInsertSchema(ekycVerifications).omit({ id: true, createdAt: true });
 export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions).omit({ id: true, createdAt: true });
 export const insertNotificationSchema = createInsertSchema(notifications).omit({ id: true, createdAt: true });
 
@@ -312,6 +338,8 @@ export type AdvisorQuestion = typeof advisorQuestions.$inferSelect;
 export type InsertAdvisorQuestion = z.infer<typeof insertAdvisorQuestionSchema>;
 export type RiskProfile = typeof riskProfiles.$inferSelect;
 export type InsertRiskProfile = z.infer<typeof insertRiskProfileSchema>;
+export type EkycVerification = typeof ekycVerifications.$inferSelect;
+export type InsertEkycVerification = z.infer<typeof insertEkycVerificationSchema>;
 export type PushSubscription = typeof pushSubscriptions.$inferSelect;
 export type InsertPushSubscription = z.infer<typeof insertPushSubscriptionSchema>;
 export type Notification = typeof notifications.$inferSelect;
