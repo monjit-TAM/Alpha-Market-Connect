@@ -35,6 +35,7 @@ AlphaMarket utilizes a modern web application architecture with a clear separati
 - **Communication:** "Ask a Question" form for investors to contact advisors, email notifications for user registrations and password resets.
 - **Market Data:** Live market prices (LTP) with change indicators, auto-refresh functionality, and integration with option chain data.
 - **Symbol Autocomplete:** NSE/BSE/MCX symbol autocomplete for stock and position entry.
+- **Risk Profiling:** Optional per-advisor feature (toggle in Profile > Settings tab). When enabled, investors must complete an 8-section questionnaire after subscribing. Dual-scoring system: capacity score (60% weight from financial metrics) + tolerance score (40% weight from experience/attitude) = overall 0-100 score mapped to 5 risk categories (Conservative, Moderately Conservative, Moderate, Aggressive, Very Aggressive). Risk profiles visible to advisors via clickable "View" in Customers Acquired section. Routes: `/risk-profiling?subscriptionId=X`. API: `POST /api/risk-profiles`, `GET /api/risk-profiles/:subscriptionId`, `GET /api/risk-profiling/check`, `PATCH /api/advisor/settings/risk-profiling`.
 
 ## External Dependencies
 - **Database:** PostgreSQL (via Neon)

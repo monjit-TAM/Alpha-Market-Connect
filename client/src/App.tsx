@@ -24,6 +24,7 @@ import PaymentPage from "@/pages/payment";
 import AgreementPage from "@/pages/agreements";
 import PaymentCallbackPage from "@/pages/payment-callback";
 import InvestorDashboard from "@/pages/investor-dashboard";
+import RiskProfilingPage from "@/pages/risk-profiling";
 import { TermsAndConditions, CancellationPolicy, PrivacyPolicy, LegalAgreement, ShippingAndReturns, ContactUs } from "@/pages/legal";
 
 function Router() {
@@ -46,6 +47,7 @@ function Router() {
       <Route path="/agreements/:type" component={AgreementPage} />
       <Route path="/payment-callback" component={PaymentCallbackPage} />
       <Route path="/investor-dashboard" component={InvestorDashboard} />
+      <Route path="/risk-profiling" component={RiskProfilingPage} />
       <Route path="/terms-and-conditions" component={TermsAndConditions} />
       <Route path="/cancellation-policy" component={CancellationPolicy} />
       <Route path="/privacy-policy" component={PrivacyPolicy} />

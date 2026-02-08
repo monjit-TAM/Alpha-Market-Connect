@@ -2,7 +2,7 @@ import { db } from "./db";
 import { eq, and, desc, sql } from "drizzle-orm";
 import {
   users, strategies, calls, positions, plans, subscriptions, content, scores, passwordResetTokens, payments,
-  watchlist, advisorQuestions,
+  watchlist, advisorQuestions, riskProfiles,
   type User, type InsertUser,
   type Strategy, type InsertStrategy,
   type Call, type InsertCall,
@@ -14,6 +14,7 @@ import {
   type Payment, type InsertPayment,
   type Watchlist, type InsertWatchlist,
   type AdvisorQuestion, type InsertAdvisorQuestion,
+  type RiskProfile, type InsertRiskProfile,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -92,6 +93,12 @@ export interface IStorage {
   getQuestionsByAdvisor(advisorId: string): Promise<AdvisorQuestion[]>;
   getUnreadQuestionCount(advisorId: string): Promise<number>;
   updateAdvisorQuestion(id: string, data: Partial<AdvisorQuestion>, advisorId?: string): Promise<AdvisorQuestion | null>;
+
+  createRiskProfile(data: InsertRiskProfile): Promise<RiskProfile>;
+  getRiskProfileBySubscription(subscriptionId: string): Promise<RiskProfile | undefined>;
+  getRiskProfilesByAdvisor(advisorId: string): Promise<RiskProfile[]>;
+  getRiskProfileByUser(userId: string, subscriptionId: string): Promise<RiskProfile | undefined>;
+  getSubscription(id: string): Promise<Subscription | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -508,6 +515,32 @@ export class DatabaseStorage implements IStorage {
     if (advisorId) conditions.push(eq(advisorQuestions.advisorId, advisorId));
     const [q] = await db.update(advisorQuestions).set(data).where(and(...conditions)).returning();
     return q || null;
+  }
+
+  async createRiskProfile(data: InsertRiskProfile): Promise<RiskProfile> {
+    const [rp] = await db.insert(riskProfiles).values(data).returning();
+    return rp;
+  }
+
+  async getRiskProfileBySubscription(subscriptionId: string): Promise<RiskProfile | undefined> {
+    const [rp] = await db.select().from(riskProfiles).where(eq(riskProfiles.subscriptionId, subscriptionId));
+    return rp;
+  }
+
+  async getRiskProfilesByAdvisor(advisorId: string): Promise<RiskProfile[]> {
+    return db.select().from(riskProfiles).where(eq(riskProfiles.advisorId, advisorId)).orderBy(desc(riskProfiles.createdAt));
+  }
+
+  async getRiskProfileByUser(userId: string, subscriptionId: string): Promise<RiskProfile | undefined> {
+    const [rp] = await db.select().from(riskProfiles).where(
+      and(eq(riskProfiles.userId, userId), eq(riskProfiles.subscriptionId, subscriptionId))
+    );
+    return rp;
+  }
+
+  async getSubscription(id: string): Promise<Subscription | undefined> {
+    const [s] = await db.select().from(subscriptions).where(eq(subscriptions.id, id));
+    return s;
   }
 }
 

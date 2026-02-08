@@ -1630,5 +1630,164 @@ export async function registerRoutes(
     }
   });
 
+  // --- Risk Profiling Routes ---
+
+  function computeRiskScores(data: any) {
+    let capacityRaw = 0;
+    let capacityMax = 0;
+
+    const incomeScores: Record<string, number> = { "below_3l": 1, "3l_10l": 2, "10l_25l": 3, "above_25l": 4 };
+    const surplusScores: Record<string, number> = { "below_1l": 1, "1l_5l": 2, "5l_25l": 3, "above_25l": 4 };
+    const assetsScores: Record<string, number> = { "below_5l": 1, "5l_25l": 2, "25l_1cr": 3, "above_1cr": 4 };
+    const liabilityScores: Record<string, number> = { "none": 4, "below_5l": 3, "5l_25l": 2, "above_25l": 1 };
+    const emergencyScores: Record<string, number> = { "below_3m": 0, "3m_6m": 1, "6m_12m": 2, "above_12m": 3 };
+    const lossScores: Record<string, number> = { "below_5": 0, "5_15": 1, "15_30": 2, "above_30": 3 };
+
+    capacityRaw += incomeScores[data.annualIncome] || 0; capacityMax += 4;
+    capacityRaw += surplusScores[data.investibleSurplus] || 0; capacityMax += 4;
+    capacityRaw += assetsScores[data.totalFinancialAssets] || 0; capacityMax += 4;
+    capacityRaw += liabilityScores[data.totalLiabilities] || 0; capacityMax += 4;
+    capacityRaw += emergencyScores[data.emergencyFund] || 0; capacityMax += 3;
+    capacityRaw += lossScores[data.affordableLoss] || 0; capacityMax += 3;
+
+    const horizonScores: Record<string, number> = { "below_1y": 0, "1y_3y": 1, "3y_7y": 2, "7y_15y": 3, "above_15y": 4 };
+    capacityRaw += horizonScores[data.timeHorizon] || 0; capacityMax += 4;
+
+    const capacityScore = capacityMax > 0 ? Math.round((capacityRaw / capacityMax) * 100) : 0;
+
+    let toleranceRaw = 0;
+    let toleranceMax = 0;
+
+    const knowledgeScores: Record<string, number> = { "none": 0, "basic": 1, "moderate": 2, "advanced": 3 };
+    toleranceRaw += knowledgeScores[data.marketKnowledge] || 0; toleranceMax += 3;
+
+    const expInstruments = data.investmentExperience || [];
+    let instrScore = 0;
+    if (expInstruments.includes("bank_fd")) instrScore = Math.max(instrScore, 1);
+    if (expInstruments.includes("equity_mf")) instrScore = Math.max(instrScore, 2);
+    if (expInstruments.includes("direct_equity")) instrScore = Math.max(instrScore, 2);
+    if (expInstruments.includes("derivatives")) instrScore = Math.max(instrScore, 3);
+    if (expInstruments.includes("structured")) instrScore = Math.max(instrScore, 3);
+    toleranceRaw += instrScore; toleranceMax += 3;
+
+    const yearsScores: Record<string, number> = { "0": 0, "below_2y": 1, "2y_5y": 2, "above_5y": 3 };
+    toleranceRaw += yearsScores[data.yearsOfExperience] || 0; toleranceMax += 3;
+
+    const pastScores: Record<string, number> = { "sold": 0, "held": 1, "bought_more": 2 };
+    toleranceRaw += pastScores[data.pastBehavior] || 0; toleranceMax += 2;
+
+    const fallScores: Record<string, number> = { "sell_most": 0, "sell_some": 1, "do_nothing": 2, "buy_more": 3 };
+    toleranceRaw += fallScores[data.portfolioFallReaction] || 0; toleranceMax += 3;
+
+    const returnScores: Record<string, number> = { "below_6": 0, "6_10": 1, "10_15": 2, "15_25": 3, "above_25": 4 };
+    toleranceRaw += returnScores[data.expectedReturn] || 0; toleranceMax += 4;
+
+    const volComfort = Math.min(Math.max(Number(data.volatilityComfort) || 0, 0), 5);
+    toleranceRaw += Math.round(volComfort * 0.8); toleranceMax += 4;
+
+    const stmtScores: Record<string, number> = { "no_loss": 0, "small_fluctuations": 1, "significant_fluctuations": 2, "high_risk": 3 };
+    toleranceRaw += stmtScores[data.riskStatement] || 0; toleranceMax += 3;
+
+    const toleranceScore = toleranceMax > 0 ? Math.round((toleranceRaw / toleranceMax) * 100) : 0;
+
+    const overallScore = Math.round(capacityScore * 0.6 + toleranceScore * 0.4);
+
+    let riskCategory = "Conservative";
+    if (overallScore >= 85) riskCategory = "Very Aggressive";
+    else if (overallScore >= 70) riskCategory = "Aggressive";
+    else if (overallScore >= 50) riskCategory = "Moderate";
+    else if (overallScore >= 25) riskCategory = "Moderately Conservative";
+
+    return { capacityScore, toleranceScore, overallScore, riskCategory };
+  }
+
+  app.patch("/api/advisor/settings/risk-profiling", requireAdvisor, async (req, res) => {
+    try {
+      const { requireRiskProfiling } = req.body;
+      const updated = await storage.updateUser(req.session.userId!, { requireRiskProfiling: !!requireRiskProfiling });
+      res.json({ requireRiskProfiling: updated.requireRiskProfiling });
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.get("/api/advisor/settings/risk-profiling", requireAdvisor, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.session.userId!);
+      res.json({ requireRiskProfiling: user?.requireRiskProfiling || false });
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.post("/api/risk-profiles", requireAuth, async (req, res) => {
+    try {
+      const { subscriptionId, ...profileData } = req.body;
+      if (!subscriptionId) return res.status(400).send("subscriptionId required");
+
+      const sub = await storage.getSubscription(subscriptionId);
+      if (!sub) return res.status(404).send("Subscription not found");
+      if (sub.userId !== req.session.userId!) return res.status(403).send("Not your subscription");
+
+      const existing = await storage.getRiskProfileBySubscription(subscriptionId);
+      if (existing) return res.status(400).send("Risk profile already completed for this subscription");
+
+      const scores = computeRiskScores(profileData);
+
+      const riskProfile = await storage.createRiskProfile({
+        subscriptionId,
+        userId: req.session.userId!,
+        advisorId: sub.advisorId,
+        ...profileData,
+        ...scores,
+      });
+
+      await storage.updateSubscription(subscriptionId, { riskProfiling: true });
+
+      res.json(riskProfile);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.get("/api/risk-profiles/:subscriptionId", requireAuth, async (req, res) => {
+    try {
+      const rp = await storage.getRiskProfileBySubscription(req.params.subscriptionId);
+      if (!rp) return res.status(404).send("Risk profile not found");
+      const user = await storage.getUser(req.session.userId!);
+      if (rp.userId !== req.session.userId! && rp.advisorId !== req.session.userId! && user?.role !== "admin") {
+        return res.status(403).send("Access denied");
+      }
+      res.json(rp);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.get("/api/risk-profiling/check", requireAuth, async (req, res) => {
+    try {
+      const { subscriptionId } = req.query;
+      if (!subscriptionId) return res.status(400).send("subscriptionId required");
+
+      const sub = await storage.getSubscription(subscriptionId as string);
+      if (!sub) return res.status(404).send("Subscription not found");
+
+      const advisor = await storage.getUser(sub.advisorId);
+      const requiresRiskProfiling = advisor?.requireRiskProfiling || false;
+
+      const existing = await storage.getRiskProfileBySubscription(subscriptionId as string);
+
+      res.json({
+        requiresRiskProfiling,
+        completed: !!existing,
+        subscriptionId: sub.id,
+        advisorId: sub.advisorId,
+        advisorName: advisor?.companyName || advisor?.username,
+      });
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
   return httpServer;
 }

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, numeric, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, numeric, pgEnum, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -26,6 +26,7 @@ export const users = pgTable("users", {
   agreementConsent: boolean("agreement_consent").default(false),
   agreementConsentDate: timestamp("agreement_consent_date"),
   activeSince: timestamp("active_since"),
+  requireRiskProfiling: boolean("require_risk_profiling").default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -199,6 +200,58 @@ export const advisorQuestions = pgTable("advisor_questions", {
   answeredAt: timestamp("answered_at"),
 });
 
+export const riskProfiles = pgTable("risk_profiles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  subscriptionId: varchar("subscription_id").notNull().references(() => subscriptions.id),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  advisorId: varchar("advisor_id").notNull().references(() => users.id),
+  fullName: text("full_name"),
+  dateOfBirth: text("date_of_birth"),
+  pan: text("pan"),
+  residentialStatus: text("residential_status"),
+  occupation: text("occupation"),
+  dependents: integer("dependents"),
+  contactDetails: text("contact_details"),
+  nomineeDetails: text("nominee_details"),
+  annualIncome: text("annual_income"),
+  investibleSurplus: text("investible_surplus"),
+  totalFinancialAssets: text("total_financial_assets"),
+  totalLiabilities: text("total_liabilities"),
+  emergencyFund: text("emergency_fund"),
+  affordableLoss: text("affordable_loss"),
+  investmentObjective: text("investment_objective"),
+  timeHorizon: text("time_horizon"),
+  cashFlowNeeds: text("cash_flow_needs"),
+  cashFlowDetails: text("cash_flow_details"),
+  marketKnowledge: text("market_knowledge"),
+  investmentExperience: text("investment_experience").array(),
+  yearsOfExperience: text("years_of_experience"),
+  pastBehavior: text("past_behavior"),
+  portfolioFallReaction: text("portfolio_fall_reaction"),
+  expectedReturn: text("expected_return"),
+  volatilityComfort: integer("volatility_comfort"),
+  riskStatement: text("risk_statement"),
+  regulatoryConstraints: boolean("regulatory_constraints").default(false),
+  regulatoryConstraintsDetails: text("regulatory_constraints_details"),
+  liquidityPreference: text("liquidity_preference"),
+  taxBracket: text("tax_bracket"),
+  marginUsage: boolean("margin_usage").default(false),
+  marginUsageDetails: text("margin_usage_details"),
+  sourceOfFunds: text("source_of_funds"),
+  fundsEncumbered: boolean("funds_encumbered").default(false),
+  multiJurisdiction: boolean("multi_jurisdiction").default(false),
+  multiJurisdictionDetails: text("multi_jurisdiction_details"),
+  declarationConfirm: boolean("declaration_confirm").default(false),
+  consentRiskProfile: boolean("consent_risk_profile").default(false),
+  consentMarketRisk: boolean("consent_market_risk").default(false),
+  consentPeriodicReview: boolean("consent_periodic_review").default(false),
+  capacityScore: integer("capacity_score"),
+  toleranceScore: integer("tolerance_score"),
+  overallScore: integer("overall_score"),
+  riskCategory: text("risk_category"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertStrategySchema = createInsertSchema(strategies).omit({ id: true, createdAt: true, modifiedAt: true });
 export const insertCallSchema = createInsertSchema(calls).omit({ id: true, createdAt: true });
@@ -210,6 +263,7 @@ export const insertScoreSchema = createInsertSchema(scores).omit({ id: true, cre
 export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true, createdAt: true });
 export const insertWatchlistSchema = createInsertSchema(watchlist).omit({ id: true, createdAt: true });
 export const insertAdvisorQuestionSchema = createInsertSchema(advisorQuestions).omit({ id: true, createdAt: true, answeredAt: true });
+export const insertRiskProfileSchema = createInsertSchema(riskProfiles).omit({ id: true, createdAt: true });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -233,3 +287,5 @@ export type Watchlist = typeof watchlist.$inferSelect;
 export type InsertWatchlist = z.infer<typeof insertWatchlistSchema>;
 export type AdvisorQuestion = typeof advisorQuestions.$inferSelect;
 export type InsertAdvisorQuestion = z.infer<typeof insertAdvisorQuestionSchema>;
+export type RiskProfile = typeof riskProfiles.$inferSelect;
+export type InsertRiskProfile = z.infer<typeof insertRiskProfileSchema>;

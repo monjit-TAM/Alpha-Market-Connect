@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
-import { CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { CheckCircle2, XCircle, Loader2, ShieldCheck } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { Link } from "wouter";
 
@@ -17,6 +17,9 @@ export default function PaymentCallbackPage() {
 
   const [status, setStatus] = useState<"loading" | "success" | "failed">("loading");
   const [strategyId, setStrategyId] = useState<string | null>(null);
+  const [subscriptionId, setSubscriptionId] = useState<string | null>(null);
+  const [riskProfilingRequired, setRiskProfilingRequired] = useState(false);
+  const [riskProfilingCompleted, setRiskProfilingCompleted] = useState(false);
 
   useEffect(() => {
     if (!orderId) {
@@ -54,6 +57,15 @@ export default function PaymentCallbackPage() {
         if (data.success && data.orderStatus === "PAID") {
           setStatus("success");
           try {
+            if (data.subscriptionId) {
+              setSubscriptionId(data.subscriptionId);
+              const rpCheck = await fetch(`/api/risk-profiling/check?subscriptionId=${data.subscriptionId}`, { credentials: "include" });
+              if (rpCheck.ok) {
+                const rpData = await rpCheck.json();
+                setRiskProfilingRequired(rpData.requiresRiskProfiling);
+                setRiskProfilingCompleted(rpData.completed);
+              }
+            }
             const paymentRes = await fetch(`/api/payments/history`, { credentials: "include" });
             if (paymentRes.ok) {
               const payments = await paymentRes.json();
@@ -112,9 +124,28 @@ export default function PaymentCallbackPage() {
                     Your subscription has been activated. You now have full access to the strategy's recommendations.
                   </p>
                 </div>
+
+                {riskProfilingRequired && !riskProfilingCompleted && subscriptionId && (
+                  <div className="p-4 rounded-md border border-accent/30 bg-accent/5 space-y-2">
+                    <div className="flex items-center justify-center gap-2">
+                      <ShieldCheck className="w-5 h-5 text-accent" />
+                      <p className="text-sm font-medium">Risk Profiling Required</p>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Your advisor requires risk profiling to be completed. This helps ensure you receive suitable investment recommendations.
+                    </p>
+                    <Link href={`/risk-profiling?subscriptionId=${subscriptionId}`}>
+                      <Button className="mt-2" data-testid="button-complete-risk-profile">
+                        <ShieldCheck className="w-4 h-4 mr-1" />
+                        Complete Risk Profile
+                      </Button>
+                    </Link>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-center gap-3 flex-wrap">
                   <Link href="/investor-dashboard">
-                    <Button data-testid="button-go-dashboard">
+                    <Button variant={riskProfilingRequired && !riskProfilingCompleted ? "outline" : "default"} data-testid="button-go-dashboard">
                       Go to Dashboard
                     </Button>
                   </Link>

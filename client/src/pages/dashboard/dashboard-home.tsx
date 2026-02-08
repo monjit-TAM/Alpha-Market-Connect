@@ -1,12 +1,14 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { IndianRupee, Users, TrendingUp, FileText, Plus, Download } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { IndianRupee, Users, TrendingUp, FileText, Plus, Download, ShieldCheck } from "lucide-react";
 import { Link } from "wouter";
 import { useAuth } from "@/lib/auth";
-import type { Strategy, Call, Subscription, Content as ContentType } from "@shared/schema";
+import type { Strategy, Call, Subscription, Content as ContentType, RiskProfile } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
 
@@ -24,8 +26,111 @@ interface RevenueData {
   totalPayments: number;
 }
 
+function RiskProfileDialog({ subscriptionId, open, onClose }: { subscriptionId: string | null; open: boolean; onClose: () => void }) {
+  const { data: profile, isLoading } = useQuery<RiskProfile>({
+    queryKey: ["/api/risk-profiles", subscriptionId],
+    enabled: !!subscriptionId && open,
+  });
+
+  const categoryColors: Record<string, string> = {
+    "Conservative": "text-blue-600",
+    "Moderately Conservative": "text-cyan-600",
+    "Moderate": "text-green-600",
+    "Aggressive": "text-orange-600",
+    "Very Aggressive": "text-red-600",
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4" />
+            Risk Profile
+          </DialogTitle>
+        </DialogHeader>
+        {isLoading ? (
+          <div className="space-y-2 py-4">
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-4 w-1/2" />
+          </div>
+        ) : profile ? (
+          <div className="space-y-4">
+            <div className="text-center p-4 rounded-md border">
+              <p className="text-xs text-muted-foreground mb-1">Risk Category</p>
+              <p className={`text-xl font-bold ${categoryColors[profile.riskCategory || ""] || ""}`} data-testid="text-dialog-risk-category">
+                {profile.riskCategory}
+              </p>
+            </div>
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <div className="p-2 rounded-md border">
+                <p className="text-xs text-muted-foreground">Capacity</p>
+                <p className="text-lg font-semibold">{profile.capacityScore}</p>
+              </div>
+              <div className="p-2 rounded-md border">
+                <p className="text-xs text-muted-foreground">Tolerance</p>
+                <p className="text-lg font-semibold">{profile.toleranceScore}</p>
+              </div>
+              <div className="p-2 rounded-md border">
+                <p className="text-xs text-muted-foreground">Overall</p>
+                <p className="text-lg font-semibold">{profile.overallScore}</p>
+              </div>
+            </div>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between gap-2 py-1 border-b">
+                <span className="text-muted-foreground">Name</span>
+                <span className="font-medium text-right">{profile.fullName}</span>
+              </div>
+              <div className="flex justify-between gap-2 py-1 border-b">
+                <span className="text-muted-foreground">Occupation</span>
+                <span className="font-medium text-right">{profile.occupation || "N/A"}</span>
+              </div>
+              <div className="flex justify-between gap-2 py-1 border-b">
+                <span className="text-muted-foreground">Annual Income</span>
+                <span className="font-medium text-right">{profile.annualIncome?.replace(/_/g, " ") || "N/A"}</span>
+              </div>
+              <div className="flex justify-between gap-2 py-1 border-b">
+                <span className="text-muted-foreground">Financial Assets</span>
+                <span className="font-medium text-right">{profile.totalFinancialAssets?.replace(/_/g, " ") || "N/A"}</span>
+              </div>
+              <div className="flex justify-between gap-2 py-1 border-b">
+                <span className="text-muted-foreground">Investment Objective</span>
+                <span className="font-medium text-right">{profile.investmentObjective?.replace(/_/g, " ") || "N/A"}</span>
+              </div>
+              <div className="flex justify-between gap-2 py-1 border-b">
+                <span className="text-muted-foreground">Time Horizon</span>
+                <span className="font-medium text-right">{profile.timeHorizon?.replace(/_/g, " ") || "N/A"}</span>
+              </div>
+              <div className="flex justify-between gap-2 py-1 border-b">
+                <span className="text-muted-foreground">Market Knowledge</span>
+                <span className="font-medium text-right">{profile.marketKnowledge || "N/A"}</span>
+              </div>
+              <div className="flex justify-between gap-2 py-1 border-b">
+                <span className="text-muted-foreground">Experience</span>
+                <span className="font-medium text-right">{profile.yearsOfExperience?.replace(/_/g, " ") || "N/A"}</span>
+              </div>
+              <div className="flex justify-between gap-2 py-1 border-b">
+                <span className="text-muted-foreground">Expected Return</span>
+                <span className="font-medium text-right">{profile.expectedReturn?.replace(/_/g, " ") || "N/A"}</span>
+              </div>
+              <div className="flex justify-between gap-2 py-1">
+                <span className="text-muted-foreground">Risk Statement</span>
+                <span className="font-medium text-right">{profile.riskStatement?.replace(/_/g, " ") || "N/A"}</span>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground py-4 text-center">Risk profile not found</p>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function DashboardHome() {
   const { user } = useAuth();
+  const [riskProfileSubId, setRiskProfileSubId] = useState<string | null>(null);
 
   const { data: strategies, isLoading: loadingStrategies } = useQuery<Strategy[]>({
     queryKey: ["/api/advisor/strategies"],
@@ -212,9 +317,17 @@ export default function DashboardHome() {
                             <span className={`w-16 text-center text-xs font-medium ${sub.ekycDone ? "text-accent" : "text-primary"}`}>
                               {sub.ekycDone ? "Yes" : "No"}
                             </span>
-                            <span className={`w-16 text-center text-xs font-medium ${sub.riskProfiling ? "text-accent" : "text-primary"}`}>
-                              {sub.riskProfiling ? "Yes" : "No"}
-                            </span>
+                            {sub.riskProfiling ? (
+                              <button
+                                onClick={() => setRiskProfileSubId(sub.id)}
+                                className="w-16 text-center text-xs font-medium text-accent underline cursor-pointer"
+                                data-testid={`button-view-risk-${sub.id}`}
+                              >
+                                View
+                              </button>
+                            ) : (
+                              <span className="w-16 text-center text-xs font-medium text-primary">No</span>
+                            )}
                           </div>
                         </div>
                       ))
@@ -251,9 +364,16 @@ export default function DashboardHome() {
                             <span className={`w-16 text-center text-xs font-medium ${sub.ekycDone ? "text-accent" : "text-primary"}`}>
                               {sub.ekycDone ? "Yes" : "No"}
                             </span>
-                            <span className={`w-16 text-center text-xs font-medium ${sub.riskProfiling ? "text-accent" : "text-primary"}`}>
-                              {sub.riskProfiling ? "Yes" : "No"}
-                            </span>
+                            {sub.riskProfiling ? (
+                              <button
+                                onClick={() => setRiskProfileSubId(sub.id)}
+                                className="w-16 text-center text-xs font-medium text-accent underline cursor-pointer"
+                              >
+                                View
+                              </button>
+                            ) : (
+                              <span className="w-16 text-center text-xs font-medium text-primary">No</span>
+                            )}
                           </div>
                         </div>
                       ))
@@ -308,6 +428,12 @@ export default function DashboardHome() {
           </CardContent>
         </Card>
       </div>
+
+      <RiskProfileDialog
+        subscriptionId={riskProfileSubId}
+        open={!!riskProfileSubId}
+        onClose={() => setRiskProfileSubId(null)}
+      />
     </div>
   );
 }

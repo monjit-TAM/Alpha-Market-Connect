@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Save } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Loader2, Save, ShieldCheck } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
@@ -49,6 +50,24 @@ export default function AdvisorProfile() {
 
   const { data: scores } = useQuery<Score[]>({
     queryKey: ["/api/advisor/scores"],
+  });
+
+  const { data: riskSettings } = useQuery<{ requireRiskProfiling: boolean }>({
+    queryKey: ["/api/advisor/settings/risk-profiling"],
+  });
+
+  const riskToggleMutation = useMutation({
+    mutationFn: async (value: boolean) => {
+      const res = await apiRequest("PATCH", "/api/advisor/settings/risk-profiling", { requireRiskProfiling: value });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/advisor/settings/risk-profiling"] });
+      toast({ title: "Risk profiling setting updated" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
   });
 
   const updateMutation = useMutation({
@@ -94,6 +113,7 @@ export default function AdvisorProfile() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="flex-wrap">
           <TabsTrigger value="overview" data-testid="tab-overview">Overview</TabsTrigger>
+          <TabsTrigger value="settings" data-testid="tab-settings">Settings</TabsTrigger>
           <TabsTrigger value="scores" data-testid="tab-scores">Scores</TabsTrigger>
         </TabsList>
 
@@ -197,6 +217,33 @@ export default function AdvisorProfile() {
                   Save Profile
                 </Button>
               </form>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="settings">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4" />
+                Investor Settings
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex items-center justify-between gap-4 p-4 rounded-md border">
+                <div className="space-y-1">
+                  <Label className="text-sm font-medium">Risk Profiling for Subscribers</Label>
+                  <p className="text-xs text-muted-foreground">
+                    When enabled, investors will be asked to complete a risk profiling questionnaire after subscribing to your strategies. Their risk profile will be visible in your Customers Acquired section.
+                  </p>
+                </div>
+                <Switch
+                  checked={riskSettings?.requireRiskProfiling || false}
+                  onCheckedChange={(checked) => riskToggleMutation.mutate(checked)}
+                  disabled={riskToggleMutation.isPending}
+                  data-testid="switch-risk-profiling"
+                />
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
