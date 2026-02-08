@@ -39,7 +39,6 @@ function getHeaders(token: string) {
   return {
     "Authorization": token,
     "x-api-key": API_KEY,
-    "x-api-version": "2.0",
     "Content-Type": "application/json",
   };
 }
@@ -74,7 +73,7 @@ export async function sendAadhaarOtp(aadhaarNumber: string): Promise<{
   };
 }
 
-export async function verifyAadhaarOtp(referenceId: number, otp: string): Promise<{
+export async function verifyAadhaarOtp(referenceId: number | string, otp: string): Promise<{
   name: string;
   dob: string;
   gender: string;
@@ -83,15 +82,13 @@ export async function verifyAadhaarOtp(referenceId: number, otp: string): Promis
   transactionId: string;
 }> {
   const token = await authenticate();
-  const res = await fetch(`${SANDBOX_BASE_URL}/kyc/aadhaar/okyc/verify`, {
+  const res = await fetch(`${SANDBOX_BASE_URL}/kyc/aadhaar/okyc/otp/verify`, {
     method: "POST",
     headers: getHeaders(token),
     body: JSON.stringify({
-      "@entity": "in.co.sandbox.kyc.aadhaar.okyc.verify.request",
-      reference_id: referenceId,
+      "@entity": "in.co.sandbox.kyc.aadhaar.okyc",
+      reference_id: String(referenceId),
       otp: otp,
-      consent: "Y",
-      reason: "KYC verification for investment advisory subscription",
     }),
   });
 
