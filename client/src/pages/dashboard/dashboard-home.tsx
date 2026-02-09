@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { IndianRupee, Users, TrendingUp, FileText, Plus, Download, ShieldCheck, Fingerprint, CheckCircle2, XCircle } from "lucide-react";
+import { IndianRupee, Users, TrendingUp, FileText, Plus, Download, ShieldCheck, Fingerprint, CheckCircle2, XCircle, FileSignature } from "lucide-react";
 import { Link } from "wouter";
 import { useAuth } from "@/lib/auth";
 import type { Strategy, Call, Subscription, Content as ContentType, RiskProfile } from "@shared/schema";
@@ -276,10 +276,92 @@ function EkycDetailDialog({ subscriptionId, open, onClose }: { subscriptionId: s
   );
 }
 
+interface AgreementDetail {
+  found: boolean;
+  agreementId: string;
+  investorName: string;
+  investorEmail: string;
+  aadhaarName: string;
+  aadhaarLast4: string;
+  signedAt: string;
+  status: string;
+}
+
+function AgreementDetailDialog({ subscriptionId, open, onClose }: { subscriptionId: string | null; open: boolean; onClose: () => void }) {
+  const { data: agreement, isLoading } = useQuery<AgreementDetail>({
+    queryKey: ["/api/advisor/agreements", subscriptionId],
+    enabled: !!subscriptionId && open,
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <FileSignature className="w-4 h-4" />
+            Agreement Details
+          </DialogTitle>
+        </DialogHeader>
+        {isLoading ? (
+          <div className="space-y-2 py-4">
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-4 w-1/2" />
+          </div>
+        ) : agreement?.found ? (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between p-3 rounded-md border">
+              <div>
+                <p className="text-xs text-muted-foreground">Status</p>
+                <p className="font-semibold" data-testid="text-agreement-status">{agreement.status === "signed" ? "Signed" : "Pending"}</p>
+              </div>
+              {agreement.status === "signed" ? (
+                <CheckCircle2 className="w-6 h-6 text-green-600" />
+              ) : (
+                <XCircle className="w-6 h-6 text-muted-foreground" />
+              )}
+            </div>
+
+            <div className="p-3 rounded-md border space-y-1.5 text-sm">
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">Investor</span>
+                <span className="font-medium text-right">{agreement.investorName}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">Email</span>
+                <span className="font-medium text-right">{agreement.investorEmail}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">Signed By (Aadhaar)</span>
+                <span className="font-medium text-right">{agreement.aadhaarName} (XXXX-{agreement.aadhaarLast4})</span>
+              </div>
+              {agreement.signedAt && (
+                <div className="flex justify-between gap-2">
+                  <span className="text-muted-foreground">Signed On</span>
+                  <span className="font-medium text-right">
+                    {new Date(agreement.signedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="py-4 text-center space-y-2">
+            <XCircle className="w-8 h-8 text-muted-foreground mx-auto" />
+            <p className="text-sm text-muted-foreground">No signed agreement found for this subscription.</p>
+            <p className="text-xs text-muted-foreground">This may be an older subscription created before the e-Sign requirement was introduced.</p>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function DashboardHome() {
   const { user } = useAuth();
   const [riskProfileSubId, setRiskProfileSubId] = useState<string | null>(null);
   const [ekycSubId, setEkycSubId] = useState<string | null>(null);
+  const [agreementSubId, setAgreementSubId] = useState<string | null>(null);
 
   const { data: strategies, isLoading: loadingStrategies } = useQuery<Strategy[]>({
     queryKey: ["/api/advisor/strategies"],
@@ -445,6 +527,7 @@ export default function DashboardHome() {
                     <div className="grid grid-cols-[1fr_auto] px-4 py-2 text-xs font-medium text-muted-foreground gap-2">
                       <span>Customer</span>
                       <div className="flex gap-4">
+                        <span className="w-16 text-center">Agreement</span>
                         <span className="w-16 text-center">EKYC</span>
                         <span className="w-16 text-center">Risk Prof.</span>
                       </div>
@@ -463,6 +546,13 @@ export default function DashboardHome() {
                             {sub.strategyName && <p className="text-xs text-muted-foreground mt-0.5">Strategy: {sub.strategyName}</p>}
                           </div>
                           <div className="flex gap-4 items-center">
+                            <button
+                              onClick={() => setAgreementSubId(sub.id)}
+                              className="w-16 text-center text-xs font-medium text-accent underline cursor-pointer"
+                              data-testid={`button-view-agreement-${sub.id}`}
+                            >
+                              View
+                            </button>
                             {sub.ekycDone ? (
                               <button
                                 onClick={() => setEkycSubId(sub.id)}
@@ -500,6 +590,7 @@ export default function DashboardHome() {
                     <div className="grid grid-cols-[1fr_auto] px-4 py-2 text-xs font-medium text-muted-foreground gap-2">
                       <span>Customer</span>
                       <div className="flex gap-4">
+                        <span className="w-16 text-center">Agreement</span>
                         <span className="w-16 text-center">EKYC</span>
                         <span className="w-16 text-center">Risk Prof.</span>
                       </div>
@@ -518,6 +609,13 @@ export default function DashboardHome() {
                             {sub.strategyName && <p className="text-xs text-muted-foreground mt-0.5">Strategy: {sub.strategyName}</p>}
                           </div>
                           <div className="flex gap-4 items-center">
+                            <button
+                              onClick={() => setAgreementSubId(sub.id)}
+                              className="w-16 text-center text-xs font-medium text-accent underline cursor-pointer"
+                              data-testid={`button-view-agreement-prev-${sub.id}`}
+                            >
+                              View
+                            </button>
                             {sub.ekycDone ? (
                               <button
                                 onClick={() => setEkycSubId(sub.id)}
@@ -603,6 +701,11 @@ export default function DashboardHome() {
         subscriptionId={ekycSubId}
         open={!!ekycSubId}
         onClose={() => setEkycSubId(null)}
+      />
+      <AgreementDetailDialog
+        subscriptionId={agreementSubId}
+        open={!!agreementSubId}
+        onClose={() => setAgreementSubId(null)}
       />
     </div>
   );

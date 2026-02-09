@@ -26,6 +26,7 @@ import PaymentCallbackPage from "@/pages/payment-callback";
 import InvestorDashboard from "@/pages/investor-dashboard";
 import RiskProfilingPage from "@/pages/risk-profiling";
 import EkycPage from "@/pages/ekyc";
+import EsignAgreementPage from "@/pages/esign-agreement";
 import { TermsAndConditions, CancellationPolicy, PrivacyPolicy, LegalAgreement, ShippingAndReturns, ContactUs } from "@/pages/legal";
 
 function Router() {
@@ -38,6 +39,7 @@ function Router() {
       <Route path="/reset-password" component={ResetPasswordPage} />
       <Route path="/strategies" component={StrategiesMarketplace} />
       <Route path="/strategies/:id/subscribe" component={SubscribePage} />
+      <Route path="/strategies/:id/esign-agreement" component={EsignAgreementPage} />
       <Route path="/strategies/:id/payment" component={PaymentPage} />
       <Route path="/strategies/:id" component={StrategyDetail} />
       <Route path="/advisors" component={AdvisorsListing} />

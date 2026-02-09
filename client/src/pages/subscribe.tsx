@@ -50,7 +50,7 @@ export default function SubscribePage() {
 
   const handleProceed = () => {
     if (!selectedPlanId) return;
-    navigate(`/strategies/${id}/payment?plan=${selectedPlanId}`);
+    navigate(`/strategies/${id}/esign-agreement?plan=${selectedPlanId}`);
   };
 
   const formatDuration = (days: number | null | undefined) => {
@@ -150,7 +150,7 @@ export default function SubscribePage() {
                 disabled={!selectedPlanId}
                 data-testid="button-proceed-payment"
               >
-                Proceed to Payment
+                Review & Sign Agreement
               </Button>
             </div>
           </>

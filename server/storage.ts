@@ -2,7 +2,7 @@ import { db } from "./db";
 import { eq, and, desc, sql } from "drizzle-orm";
 import {
   users, strategies, calls, positions, plans, subscriptions, content, scores, passwordResetTokens, payments,
-  watchlist, advisorQuestions, riskProfiles, ekycVerifications, pushSubscriptions, notifications,
+  watchlist, advisorQuestions, riskProfiles, ekycVerifications, pushSubscriptions, notifications, esignAgreements,
   type User, type InsertUser,
   type Strategy, type InsertStrategy,
   type Call, type InsertCall,
@@ -18,6 +18,7 @@ import {
   type EkycVerification, type InsertEkycVerification,
   type PushSubscription, type InsertPushSubscription,
   type Notification, type InsertNotification,
+  type EsignAgreement, type InsertEsignAgreement,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -117,6 +118,13 @@ export interface IStorage {
   getPushSubscriptionsForUserIds(userIds: string[]): Promise<PushSubscription[]>;
   createNotification(data: InsertNotification): Promise<Notification>;
   getRecentNotifications(limit?: number): Promise<Notification[]>;
+
+  createEsignAgreement(data: InsertEsignAgreement): Promise<EsignAgreement>;
+  updateEsignAgreement(id: string, data: Partial<EsignAgreement>): Promise<EsignAgreement>;
+  getEsignAgreement(id: string): Promise<EsignAgreement | undefined>;
+  getEsignAgreementByUserAndStrategy(userId: string, strategyId: string, planId: string): Promise<EsignAgreement | undefined>;
+  getEsignAgreementBySubscription(subscriptionId: string): Promise<EsignAgreement | undefined>;
+  getEsignAgreementsByAdvisor(advisorId: string): Promise<EsignAgreement[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -638,6 +646,46 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(ekycVerifications)
       .where(eq(ekycVerifications.advisorId, advisorId))
       .orderBy(desc(ekycVerifications.createdAt));
+  }
+
+  async createEsignAgreement(data: InsertEsignAgreement): Promise<EsignAgreement> {
+    const [a] = await db.insert(esignAgreements).values(data).returning();
+    return a;
+  }
+
+  async updateEsignAgreement(id: string, data: Partial<EsignAgreement>): Promise<EsignAgreement> {
+    const [a] = await db.update(esignAgreements).set(data).where(eq(esignAgreements.id, id)).returning();
+    return a;
+  }
+
+  async getEsignAgreement(id: string): Promise<EsignAgreement | undefined> {
+    const [a] = await db.select().from(esignAgreements).where(eq(esignAgreements.id, id));
+    return a;
+  }
+
+  async getEsignAgreementByUserAndStrategy(userId: string, strategyId: string, planId: string): Promise<EsignAgreement | undefined> {
+    const results = await db.select().from(esignAgreements)
+      .where(and(
+        eq(esignAgreements.userId, userId),
+        eq(esignAgreements.strategyId, strategyId),
+        eq(esignAgreements.planId, planId),
+        eq(esignAgreements.status, "signed")
+      ))
+      .orderBy(desc(esignAgreements.signedAt))
+      .limit(1);
+    return results[0];
+  }
+
+  async getEsignAgreementBySubscription(subscriptionId: string): Promise<EsignAgreement | undefined> {
+    const [a] = await db.select().from(esignAgreements)
+      .where(eq(esignAgreements.subscriptionId, subscriptionId));
+    return a;
+  }
+
+  async getEsignAgreementsByAdvisor(advisorId: string): Promise<EsignAgreement[]> {
+    return db.select().from(esignAgreements)
+      .where(eq(esignAgreements.advisorId, advisorId))
+      .orderBy(desc(esignAgreements.createdAt));
   }
 }
 

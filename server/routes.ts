@@ -5,9 +5,12 @@ import { storage } from "./storage";
 import { scrypt, randomBytes, timingSafeEqual, createHmac } from "crypto";
 import { promisify } from "util";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
-import { sendRegistrationNotification, sendUserWelcomeEmail, sendPasswordResetEmail, sendAdvisorAgreementEmail } from "./email";
+import { sendRegistrationNotification, sendUserWelcomeEmail, sendPasswordResetEmail, sendAdvisorAgreementEmail, sendEsignAgreementEmail } from "./email";
 import { getLiveQuote, getLivePrices, setGrowwAccessToken, getGrowwTokenStatus, getOptionChainExpiries, getOptionChain } from "./groww";
 import type { Plan } from "@shared/schema";
+import { esignAgreements } from "@shared/schema";
+import { db } from "./db";
+import { and, eq, desc } from "drizzle-orm";
 import nseSymbols from "./data/nse-symbols.json";
 import { createCashfreeOrder, fetchCashfreeOrder, fetchCashfreePayments, verifyCashfreeWebhook } from "./cashfree";
 import { notifyStrategySubscribers, notifyAllUsers, notifyAllVisitors, vapidPublicKey, pushEnabled } from "./push";
@@ -565,6 +568,11 @@ export async function registerRoutes(
       const user = await storage.getUser(req.session.userId!);
       if (!user) return res.status(401).send("User not found");
 
+      const signedAgreement = await storage.getEsignAgreementByUserAndStrategy(user.id, strategyId, planId);
+      if (!signedAgreement || signedAgreement.status !== "signed") {
+        return res.status(400).send("You must sign the Investment Advisory Services Agreement before proceeding to payment.");
+      }
+
       const orderId = `AM_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const amount = Number(plan.amount);
       const verifyToken = generateVerifyToken(orderId, user.id);
@@ -679,6 +687,14 @@ export async function registerRoutes(
         });
 
         await storage.updatePayment(payment.id, { subscriptionId: sub.id });
+
+        const esignAgreement = await storage.getEsignAgreementByUserAndStrategy(
+          payment.userId, payment.strategyId!, payment.planId!
+        );
+        if (esignAgreement) {
+          await storage.updateEsignAgreement(esignAgreement.id, { subscriptionId: sub.id });
+        }
+
         console.log(`Payment verify: subscription created for order ${orderId}, sub: ${sub.id}`);
 
         res.json({ success: true, orderStatus: "PAID", subscriptionId: sub.id });
@@ -741,6 +757,13 @@ export async function registerRoutes(
               });
 
               await storage.updatePayment(payment.id, { subscriptionId: sub.id });
+
+              const esignAg = await storage.getEsignAgreementByUserAndStrategy(
+                payment.userId, payment.strategyId!, payment.planId!
+              );
+              if (esignAg) {
+                await storage.updateEsignAgreement(esignAg.id, { subscriptionId: sub.id });
+              }
             }
           }
         }
@@ -1855,6 +1878,157 @@ export async function registerRoutes(
   });
 
   // ─── eKYC Routes ───
+
+  // ==================== eSign Agreement Routes ====================
+
+  app.post("/api/esign/otp", requireAuth, async (req, res) => {
+    try {
+      const { strategyId, planId, aadhaarNumber } = req.body;
+      if (!strategyId || !planId || !aadhaarNumber) return res.status(400).send("strategyId, planId and aadhaarNumber required");
+      if (!/^\d{12}$/.test(aadhaarNumber)) return res.status(400).send("Invalid Aadhaar number format");
+
+      const strategy = await storage.getStrategy(strategyId);
+      if (!strategy) return res.status(404).send("Strategy not found");
+
+      const result = await sendAadhaarOtp(aadhaarNumber);
+
+      const existing = await storage.getEsignAgreementByUserAndStrategy(req.session.userId!, strategyId, planId);
+      if (existing) {
+        await storage.updateEsignAgreement(existing.id, {
+          status: "otp_sent",
+          aadhaarRefId: String(result.referenceId),
+          aadhaarLast4: aadhaarNumber.slice(-4),
+        });
+      } else {
+        await storage.createEsignAgreement({
+          userId: req.session.userId!,
+          advisorId: strategy.advisorId,
+          strategyId,
+          planId,
+          status: "otp_sent",
+          aadhaarRefId: String(result.referenceId),
+          aadhaarLast4: aadhaarNumber.slice(-4),
+          agreementVersion: "1.0",
+        });
+      }
+
+      res.json({ success: true, message: result.message, referenceId: result.referenceId });
+    } catch (err: any) {
+      console.error("[eSign] OTP send error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/esign/verify", requireAuth, async (req, res) => {
+    try {
+      const { strategyId, planId, referenceId, otp } = req.body;
+      if (!strategyId || !planId || !referenceId || !otp) {
+        return res.status(400).send("strategyId, planId, referenceId and otp required");
+      }
+
+      const result = await verifyAadhaarOtp(Number(referenceId), otp);
+
+      const agreements = await db.select().from(esignAgreements)
+        .where(and(
+          eq(esignAgreements.userId, req.session.userId!),
+          eq(esignAgreements.strategyId, strategyId),
+          eq(esignAgreements.planId, planId),
+          eq(esignAgreements.status, "otp_sent")
+        ))
+        .orderBy(desc(esignAgreements.createdAt))
+        .limit(1);
+
+      const agreement = agreements[0];
+      if (!agreement) return res.status(404).send("No pending agreement found");
+
+      await storage.updateEsignAgreement(agreement.id, {
+        status: "signed",
+        aadhaarName: result.name,
+        aadhaarTransactionId: result.transactionId,
+        signedAt: new Date(),
+        rawResponse: {
+          name: result.name,
+          dob: result.dob,
+          gender: result.gender,
+          transactionId: result.transactionId,
+        },
+      });
+
+      const strategy = await storage.getStrategy(strategyId);
+      const user = await storage.getUser(req.session.userId!);
+      const advisor = await storage.getUser(agreement.advisorId);
+
+      if (user && advisor && strategy) {
+        sendEsignAgreementEmail({
+          investorName: user.companyName || user.username,
+          investorEmail: user.email,
+          advisorName: advisor.companyName || advisor.username,
+          advisorEmail: advisor.email,
+          strategyName: strategy.name,
+          signedAt: new Date(),
+          aadhaarName: result.name,
+          aadhaarLast4: agreement.aadhaarLast4 || "",
+        }).catch(err => console.error("[eSign] Email error:", err));
+      }
+
+      res.json({ success: true, agreementId: agreement.id, name: result.name });
+    } catch (err: any) {
+      console.error("[eSign] Verify error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/esign/status", requireAuth, async (req, res) => {
+    try {
+      const { strategyId, planId } = req.query;
+      if (!strategyId || !planId) return res.status(400).send("strategyId and planId required");
+
+      const agreement = await storage.getEsignAgreementByUserAndStrategy(
+        req.session.userId!, strategyId as string, planId as string
+      );
+
+      if (agreement && agreement.status === "signed") {
+        res.json({
+          signed: true,
+          agreementId: agreement.id,
+          signedAt: agreement.signedAt,
+          aadhaarName: agreement.aadhaarName,
+        });
+      } else {
+        res.json({ signed: false });
+      }
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.get("/api/advisor/agreements/:subscriptionId", requireAdvisor, async (req, res) => {
+    try {
+      const { subscriptionId } = req.params;
+      const sub = await storage.getSubscription(subscriptionId);
+      if (!sub) return res.status(404).send("Subscription not found");
+      if (sub.advisorId !== req.session.userId) return res.status(403).send("Not authorized");
+
+      const agreement = await storage.getEsignAgreementBySubscription(subscriptionId);
+      if (!agreement) return res.status(404).json({ found: false });
+
+      const user = await storage.getUser(agreement.userId);
+
+      res.json({
+        found: true,
+        agreementId: agreement.id,
+        investorName: user?.username || "Unknown",
+        investorEmail: user?.email || "",
+        aadhaarName: agreement.aadhaarName,
+        aadhaarLast4: agreement.aadhaarLast4,
+        signedAt: agreement.signedAt,
+        agreementVersion: agreement.agreementVersion,
+        status: agreement.status,
+      });
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
 
   app.get("/api/ekyc/configured", (req, res) => {
     res.json({ configured: isSandboxConfigured() });

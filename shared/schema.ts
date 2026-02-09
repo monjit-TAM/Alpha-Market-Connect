@@ -345,6 +345,28 @@ export type InsertPushSubscription = z.infer<typeof insertPushSubscriptionSchema
 export type Notification = typeof notifications.$inferSelect;
 export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 
+export const esignAgreements = pgTable("esign_agreements", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  advisorId: varchar("advisor_id").notNull().references(() => users.id),
+  strategyId: varchar("strategy_id").notNull().references(() => strategies.id),
+  planId: varchar("plan_id").notNull().references(() => plans.id),
+  subscriptionId: varchar("subscription_id").references(() => subscriptions.id),
+  status: text("status").notNull().default("pending"),
+  aadhaarRefId: text("aadhaar_ref_id"),
+  aadhaarTransactionId: text("aadhaar_transaction_id"),
+  aadhaarLast4: text("aadhaar_last4"),
+  aadhaarName: text("aadhaar_name"),
+  agreementVersion: text("agreement_version").default("1.0"),
+  signedAt: timestamp("signed_at"),
+  rawResponse: jsonb("raw_response"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertEsignAgreementSchema = createInsertSchema(esignAgreements).omit({ id: true, createdAt: true });
+export type EsignAgreement = typeof esignAgreements.$inferSelect;
+export type InsertEsignAgreement = z.infer<typeof insertEsignAgreementSchema>;
+
 export const appSettings = pgTable("app_settings", {
   key: varchar("key").primaryKey(),
   value: text("value"),

@@ -220,6 +220,62 @@ export async function sendAdvisorAgreementEmail(userData: {
   }
 }
 
+export async function sendEsignAgreementEmail(data: {
+  investorName: string;
+  investorEmail: string;
+  advisorName: string;
+  advisorEmail: string;
+  strategyName: string;
+  signedAt: Date;
+  aadhaarName: string;
+  aadhaarLast4: string;
+}) {
+  try {
+    const { client, fromEmail } = await getUncachableSendGridClient();
+
+    const signedDate = data.signedAt.toLocaleDateString("en-IN", {
+      day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit"
+    });
+
+    const html = `
+      <div style="max-width: 700px; margin: 0 auto; font-family: Arial, sans-serif;">
+        <h2 style="color: #333;">AlphaMarket - Investment Advisory Services Agreement</h2>
+        <p style="color: #333; font-size: 14px;">This email confirms that the following Investment Advisor and Research Analyst Services Agreement has been electronically signed via Aadhaar OTP verification.</p>
+
+        <div style="margin: 20px 0; padding: 16px; background-color: #f9f9f9; border-left: 4px solid #c53030; border-radius: 4px;">
+          <h3 style="margin: 0 0 12px 0; color: #333;">Agreement Details</h3>
+          <table style="border-collapse: collapse; width: 100%; max-width: 500px;">
+            <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight: bold; width: 40%;">Strategy</td><td style="padding: 8px; border: 1px solid #ddd;">${data.strategyName}</td></tr>
+            <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">Advisor</td><td style="padding: 8px; border: 1px solid #ddd;">${data.advisorName}</td></tr>
+            <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">Investor</td><td style="padding: 8px; border: 1px solid #ddd;">${data.investorName}</td></tr>
+            <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">Signed By (Aadhaar)</td><td style="padding: 8px; border: 1px solid #ddd;">${data.aadhaarName} (XXXX XXXX ${data.aadhaarLast4})</td></tr>
+            <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">Signed On</td><td style="padding: 8px; border: 1px solid #ddd;">${signedDate}</td></tr>
+          </table>
+        </div>
+
+        <div style="margin: 20px 0; padding: 16px; background-color: #fff3cd; border-left: 4px solid #ffc107; border-radius: 4px;">
+          <p style="margin: 0; font-size: 13px; color: #856404;">This agreement was electronically signed using Aadhaar OTP verification in compliance with the Information Technology Act, 2000. The agreement is legally binding and enforceable. A copy of this agreement is being sent to both the investor and the advisor for their records.</p>
+        </div>
+
+        <p style="font-size: 14px; color: #333;">The Investment Advisor and Research Analyst Services Agreement governs the advisory relationship between the investor and the SEBI Registered Investment Advisor/Research Analyst through The AlphaMarket platform. This includes client consent, risk profiling requirements, fee structure, confidentiality, data protection, grievance redressal, and all other terms as specified in the agreement.</p>
+
+        <p style="color: #666; font-size: 12px; margin-top: 24px;">This is an automated notification from AlphaMarket by Edhaz Financial Services Private Limited.</p>
+      </div>
+    `;
+
+    await client.send({
+      to: [data.investorEmail, data.advisorEmail, AGREEMENT_COPY_EMAIL],
+      from: fromEmail,
+      subject: `AlphaMarket - Agreement Signed: ${data.strategyName} - ${data.investorName}`,
+      html,
+    });
+
+    console.log(`eSign agreement email sent to ${data.investorEmail} and ${data.advisorEmail}`);
+  } catch (err) {
+    console.error("Failed to send eSign agreement email:", err);
+  }
+}
+
 export async function sendPasswordResetEmail(email: string, resetToken: string, appUrl: string) {
   try {
     const { client, fromEmail } = await getUncachableSendGridClient();
