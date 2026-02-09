@@ -1,4 +1,7 @@
 import crypto from "crypto";
+import { db } from "./db";
+import { appSettings } from "@shared/schema";
+import { eq } from "drizzle-orm";
 
 const GROWW_API_BASE = "https://api.groww.in/v1";
 
@@ -82,7 +85,44 @@ export function setGrowwAccessToken(token: string): { success: boolean; expiresI
   tokenSource = "manual";
   priceCache.clear();
   console.log(`[Groww] Access token set manually, expires in ${Math.round(msUntilExpiry / 3600000)}h`);
+
+  persistTokenToDb(token, tokenExpiry, tokenSetAt).catch(err =>
+    console.error("[Groww] Failed to persist token to DB:", err)
+  );
+
   return { success: true, expiresIn: `${Math.round(msUntilExpiry / 3600000)} hours` };
+}
+
+async function persistTokenToDb(token: string, expiry: number, setAt: number): Promise<void> {
+  const data = JSON.stringify({ token, expiry, setAt });
+  await db.insert(appSettings)
+    .values({ key: "groww_access_token", value: data, updatedAt: new Date() })
+    .onConflictDoUpdate({
+      target: appSettings.key,
+      set: { value: data, updatedAt: new Date() },
+    });
+}
+
+export async function loadPersistedGrowwToken(): Promise<void> {
+  try {
+    const row = await db.select().from(appSettings).where(eq(appSettings.key, "groww_access_token")).limit(1);
+    if (row.length === 0 || !row[0].value) return;
+
+    const { token, expiry, setAt } = JSON.parse(row[0].value);
+    if (!token || !expiry || Date.now() >= expiry) {
+      console.log("[Groww] Persisted token expired or invalid, skipping");
+      return;
+    }
+
+    cachedAccessToken = token;
+    tokenExpiry = expiry;
+    tokenSetAt = setAt || Date.now();
+    tokenSource = "manual";
+    const remainingHours = Math.round((expiry - Date.now()) / 3600000);
+    console.log(`[Groww] Restored persisted access token, expires in ~${remainingHours}h`);
+  } catch (err) {
+    console.error("[Groww] Failed to load persisted token:", err);
+  }
 }
 
 export function getGrowwTokenStatus(): {

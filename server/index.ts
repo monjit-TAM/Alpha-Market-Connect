@@ -4,6 +4,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { seed } from "./seed";
 import { startScheduler } from "./scheduler";
+import { loadPersistedGrowwToken } from "./groww";
 
 const app = express();
 const httpServer = createServer(app);
@@ -63,6 +64,7 @@ app.use((req, res, next) => {
 
 (async () => {
   await seed().catch((err) => console.error("Seed error:", err));
+  await loadPersistedGrowwToken();
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
