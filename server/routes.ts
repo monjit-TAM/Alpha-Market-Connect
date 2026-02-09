@@ -1568,21 +1568,38 @@ export async function registerRoutes(
         const subDate = sub.createdAt ? new Date(sub.createdAt) : new Date(0);
         const strategyCalls = await storage.getCallsByStrategy(sub.strategyId);
         const strategyPositions = await storage.getPositionsByStrategy(sub.strategyId);
+        const advisor = strategy?.advisorId ? await storage.getUser(strategy.advisorId) : null;
+        const advisorName = advisor?.companyName || "";
+        const strategyType = strategy?.type || "";
         const filteredCalls = strategyCalls.filter(c => {
-          if (c.publishMode && c.publishMode !== "live") return false;
+          const isClosed = c.status === "Closed" || !!c.exitDate;
+          const isLive = !c.publishMode || c.publishMode === "live";
+          if (!isLive && !isClosed) return false;
           const callDate = c.createdAt ? new Date(c.createdAt) : new Date();
-          return callDate >= subDate;
+          if (callDate >= subDate) return true;
+          if (c.status === "Active" && isLive) return true;
+          const exitDate = c.exitDate ? new Date(c.exitDate) : null;
+          if (exitDate && exitDate >= subDate) return true;
+          if (isClosed) return true;
+          return false;
         });
         const filteredPositions = strategyPositions.filter(p => {
-          if (p.publishMode && p.publishMode !== "live") return false;
+          const isClosed = p.status === "Closed" || !!p.exitDate;
+          const isLive = !p.publishMode || p.publishMode === "live";
+          if (!isLive && !isClosed) return false;
           const posDate = p.createdAt ? new Date(p.createdAt) : new Date();
-          return posDate >= subDate;
+          if (posDate >= subDate) return true;
+          if (p.status === "Active" && isLive) return true;
+          const exitDate = p.exitDate ? new Date(p.exitDate) : null;
+          if (exitDate && exitDate >= subDate) return true;
+          if (isClosed) return true;
+          return false;
         });
         for (const c of filteredCalls) {
-          allCalls.push({ ...c, strategyName: strategy?.name || "", advisorName: strategy?.advisorId ? (await storage.getUser(strategy.advisorId))?.companyName || "" : "" });
+          allCalls.push({ ...c, strategyName: strategy?.name || "", advisorName, strategyType });
         }
         for (const p of filteredPositions) {
-          allPositions.push({ ...p, strategyName: strategy?.name || "", advisorName: strategy?.advisorId ? (await storage.getUser(strategy.advisorId))?.companyName || "" : "" });
+          allPositions.push({ ...p, strategyName: strategy?.name || "", advisorName, strategyType });
         }
       }
       res.json({ calls: allCalls, positions: allPositions });

@@ -44,11 +44,13 @@ interface EnrichedSubscription extends Subscription {
 interface EnrichedCall extends Call {
   strategyName: string;
   advisorName: string;
+  strategyType?: string;
 }
 
 interface EnrichedPosition extends Position {
   strategyName: string;
   advisorName: string;
+  strategyType?: string;
   action?: string;
   expiryDate?: string | null;
   optionType?: string | null;
@@ -116,8 +118,8 @@ export default function InvestorDashboard() {
   const activePositions = (recommendations?.positions || []).filter(p => p.status === "Active");
   const closedPositions = (recommendations?.positions || []).filter(p => p.status === "Closed");
 
-  const activeCallSymbols = activeCalls.map(c => ({ symbol: c.stockName, strategyType: "Equity" }));
-  const activePositionSymbols = activePositions.map(p => ({ symbol: p.symbol, strategyType: "Option" }));
+  const activeCallSymbols = activeCalls.map(c => ({ symbol: c.stockName, strategyType: c.strategyType || "Equity" }));
+  const activePositionSymbols = activePositions.map(p => ({ symbol: p.symbol, strategyType: p.strategyType || "Option" }));
   const allActiveSymbols = [...activeCallSymbols, ...activePositionSymbols];
 
   const { data: livePrices } = useQuery<Record<string, LivePrice>>({
@@ -130,6 +132,44 @@ export default function InvestorDashboard() {
     enabled: allActiveSymbols.length > 0,
     refetchInterval: 15000,
   });
+
+  const fnoPositionGroups = activePositions
+    .filter(p => p.symbol && p.expiry && p.strikePrice && p.callPut)
+    .reduce<Record<string, { symbol: string; expiry: string; exchange: string }>>((acc, p) => {
+      const exchange = ["SENSEX", "BANKEX"].includes(p.symbol!.toUpperCase()) ? "BSE" : "NSE";
+      const key = `${p.symbol}:${p.expiry}`;
+      if (!acc[key]) acc[key] = { symbol: p.symbol!, expiry: p.expiry!, exchange };
+      return acc;
+    }, {});
+
+  const { data: optionChainData } = useQuery<Record<string, any[]>>({
+    queryKey: ["/api/option-chain-premiums", "investor", JSON.stringify(fnoPositionGroups)],
+    queryFn: async () => {
+      const results: Record<string, any[]> = {};
+      const entries = Object.entries(fnoPositionGroups);
+      await Promise.all(
+        entries.map(async ([key, { symbol, expiry, exchange }]) => {
+          try {
+            const res = await fetch(`/api/option-chain?symbol=${encodeURIComponent(symbol)}&exchange=${exchange}&expiry=${encodeURIComponent(expiry)}`);
+            if (res.ok) results[key] = await res.json();
+          } catch {}
+        })
+      );
+      return results;
+    },
+    enabled: Object.keys(fnoPositionGroups).length > 0,
+    refetchInterval: 15000,
+  });
+
+  const getOptionPremiumLTP = (pos: EnrichedPosition): number | null => {
+    if (!pos.symbol || !pos.expiry || !pos.strikePrice || !optionChainData) return null;
+    const key = `${pos.symbol}:${pos.expiry}`;
+    const chain = optionChainData[key];
+    if (!chain) return null;
+    const strike = chain.find((s: any) => String(s.strikePrice) === String(pos.strikePrice));
+    if (!strike) return null;
+    return pos.callPut === "Put" ? (strike.pe?.ltp ?? null) : (strike.ce?.ltp ?? null);
+  };
 
   const selectedPeriod = PERFORMANCE_PERIODS.find(p => p.key === perfPeriod) || PERFORMANCE_PERIODS[6];
   const periodCutoff = new Date();
@@ -387,23 +427,30 @@ export default function InvestorDashboard() {
                             {activePositions.map(pos => {
                               const lp = livePrices?.[pos.symbol || ""];
                               const entryPrice = Number(pos.entryPrice || 0);
-                              const currentPrice = lp?.ltp || 0;
+                              const isFnO = !!(pos.strikePrice && pos.callPut && pos.expiry);
+                              const premiumLTP = isFnO ? getOptionPremiumLTP(pos) : null;
+                              const currentPrice = isFnO && premiumLTP != null ? premiumLTP : (lp?.ltp || 0);
                               const isSell = pos.buySell === "Sell";
                               const pnl = entryPrice > 0 && currentPrice > 0
                                 ? (isSell ? ((entryPrice - currentPrice) / entryPrice) * 100 : ((currentPrice - entryPrice) / entryPrice) * 100)
                                 : null;
                               const symbolLabel = `${pos.symbol || ""} ${pos.expiry || ""} ${pos.strikePrice || ""} ${pos.callPut || ""}`.trim();
+                              const displayLtp = isFnO && premiumLTP != null ? premiumLTP : (lp?.ltp ?? null);
                               return (
                                 <tr key={`pos-${pos.id}`} className="border-b last:border-0" data-testid={`row-active-pos-${pos.id}`}>
                                   <td className="py-2 px-3 font-medium">{symbolLabel}</td>
                                   <td className="py-2 px-3">{entryPrice ? `\u20B9${entryPrice}` : "--"}</td>
                                   <td className="py-2 px-3">
-                                    {lp ? (
+                                    {displayLtp != null ? (
                                       <span className="flex items-center gap-1">
-                                        {"\u20B9"}{lp.ltp.toFixed(2)}
-                                        {lp.changePercent >= 0
-                                          ? <ArrowUp className="w-3 h-3 text-green-500" />
-                                          : <ArrowDown className="w-3 h-3 text-red-500" />}
+                                        {"\u20B9"}{displayLtp.toFixed(2)}
+                                        {isFnO && premiumLTP != null ? (
+                                          <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4">{pos.callPut === "Put" ? "PE" : "CE"} LTP</Badge>
+                                        ) : (
+                                          lp && (lp.changePercent >= 0
+                                            ? <ArrowUp className="w-3 h-3 text-green-500" />
+                                            : <ArrowDown className="w-3 h-3 text-red-500" />)
+                                        )}
                                       </span>
                                     ) : "--"}
                                   </td>
