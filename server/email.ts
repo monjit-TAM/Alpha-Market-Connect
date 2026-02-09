@@ -37,7 +37,7 @@ async function getCredentials() {
   }
   return {
     apiKey: connectionSettings.settings.api_key,
-    email: connectionSettings.settings.from_email,
+    email: process.env.SENDGRID_FROM_EMAIL || connectionSettings.settings.from_email,
   };
 }
 
