@@ -1059,6 +1059,39 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/calls/:id/exit", requireAdvisor, async (req, res) => {
+    try {
+      const call = await storage.getCall(req.params.id as string);
+      if (!call) return res.status(404).send("Call not found");
+      const strategy = await storage.getStrategy(call.strategyId);
+      if (!strategy || strategy.advisorId !== req.session.userId) {
+        return res.status(403).send("Not authorized");
+      }
+      if (call.status !== "Closed") {
+        return res.status(400).send("Can only update exit data on closed calls");
+      }
+      const { exitPrice } = req.body;
+      if (!exitPrice || Number(exitPrice) <= 0) {
+        return res.status(400).send("Valid exit price is required");
+      }
+      const entryPx = Number(call.entryPrice || call.buyRangeStart || 0);
+      const exitPx = Number(exitPrice);
+      let gainPercent: string | null = null;
+      if (entryPx > 0 && exitPx > 0) {
+        const isSell = call.action === "Sell";
+        gainPercent = (isSell ? ((entryPx - exitPx) / entryPx) * 100 : ((exitPx - entryPx) / entryPx) * 100).toFixed(2);
+      }
+      const updated = await storage.updateCall(call.id, {
+        sellPrice: String(exitPx),
+        gainPercent,
+        exitDate: call.exitDate || new Date(),
+      });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
   app.post("/api/calls/:id/publish", requireAdvisor, async (req, res) => {
     try {
       const call = await storage.getCall(req.params.id as string);

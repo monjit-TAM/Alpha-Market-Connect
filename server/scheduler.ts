@@ -33,12 +33,41 @@ async function autoSquareOffIntraday() {
         const entryPrice = Number(call.entryPrice || call.buyRangeStart || 0);
         let sellPrice = entryPrice;
         let gainPercent = 0;
+        let callPriceSource = "entry_fallback";
 
         try {
-          const liveQuote = await getLiveQuote(call.stockName, strategy.type);
-          if (liveQuote && liveQuote.ltp > 0) {
-            sellPrice = liveQuote.ltp;
-            gainPercent = entryPrice > 0 ? ((sellPrice - entryPrice) / entryPrice) * 100 : 0;
+          const isFnOType = ["Option", "Future", "Index", "CommodityFuture"].includes(strategy.type);
+          const callNameParts = call.stockName?.match(/^(\S+)\s+\d{4}-\d{2}-\d{2}\s+(\d+(?:\.\d+)?)\s+(Call|Put|CE|PE)$/i);
+          
+          if (isFnOType && callNameParts) {
+            const [, underlying, strikeStr, optionType] = callNameParts;
+            const expiryMatch = call.stockName?.match(/(\d{4}-\d{2}-\d{2})/);
+            const expiry = expiryMatch ? expiryMatch[1] : "";
+            const strikePrice = Number(strikeStr);
+            const callPutType = optionType.toLowerCase() === "call" || optionType.toLowerCase() === "ce" ? "CE" : "PE";
+
+            if (expiry && strikePrice > 0) {
+              const premiumLTP = await getOptionPremiumLTP(underlying, expiry, strikePrice, callPutType);
+              if (premiumLTP != null && premiumLTP > 0) {
+                sellPrice = premiumLTP;
+                callPriceSource = "option_chain";
+              } else {
+                console.warn(`[Scheduler] Option premium unavailable for call ${call.stockName}, using entry price fallback. Advisor should update exit price manually.`);
+              }
+            }
+          } else {
+            const liveQuote = await getLiveQuote(call.stockName, strategy.type);
+            if (liveQuote && liveQuote.ltp > 0) {
+              sellPrice = liveQuote.ltp;
+              callPriceSource = "live_quote";
+            }
+          }
+
+          if (entryPrice > 0 && sellPrice > 0) {
+            const isSellAction = call.action === "Sell";
+            gainPercent = isSellAction
+              ? ((entryPrice - sellPrice) / entryPrice) * 100
+              : ((sellPrice - entryPrice) / entryPrice) * 100;
           }
         } catch (e) {
           console.error(`[Scheduler] Could not fetch live price for ${call.stockName}, using entry price`);
@@ -50,7 +79,7 @@ async function autoSquareOffIntraday() {
           gainPercent: String(gainPercent.toFixed(2)),
           exitDate: new Date(),
         });
-        console.log(`[Scheduler] Auto-squared off intraday call ${call.id} (${call.stockName}) at ${"\u20B9"}${sellPrice.toFixed(2)}, P&L: ${gainPercent.toFixed(2)}%`);
+        console.log(`[Scheduler] Auto-squared off intraday call ${call.id} (${call.stockName}) at ${"\u20B9"}${sellPrice.toFixed(2)}, P&L: ${gainPercent.toFixed(2)}% [source: ${callPriceSource}]`);
       }
 
       const activePositions = await db

@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, MoreVertical, Loader2, Pencil, ChevronDown, ChevronRight, X, Search, ArrowUp, ArrowDown, Send } from "lucide-react";
+import { Plus, MoreVertical, Loader2, Pencil, ChevronDown, ChevronRight, X, Search, ArrowUp, ArrowDown, Send, Check } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -533,7 +533,7 @@ function StrategyCallsPanel({ strategy }: { strategy: Strategy }) {
           ) : (
             <div className="space-y-2">
               {closedCalls.map((call) => (
-                <CallRow key={call.id} call={call} />
+                <CallRow key={call.id} call={call} strategyId={strategy.id} />
               ))}
               {closedPositions.map((pos) => (
                 <PositionRow key={pos.id} position={pos} strategyId={strategy.id} />
@@ -607,12 +607,15 @@ function CallRow({
   onEdit,
   onClose,
   livePrice,
+  strategyId,
 }: {
   call: Call;
   onEdit?: () => void;
   onClose?: () => void;
   livePrice?: { ltp: number; change: number; changePercent: number };
+  strategyId?: string;
 }) {
+  const { toast } = useToast();
   const isActive = call.status === "Active";
   const buyPrice = Number(call.entryPrice || call.buyRangeStart || 0);
   const currentPrice = livePrice?.ltp || 0;
@@ -620,6 +623,28 @@ function CallRow({
   const pnl = buyPrice > 0 && currentPrice > 0
     ? (isSell ? ((buyPrice - currentPrice) / buyPrice) * 100 : ((currentPrice - buyPrice) / buyPrice) * 100)
     : null;
+
+  const isMissingExitData = !isActive && (call.sellPrice == null || Number(call.sellPrice) === 0 || Number(call.sellPrice) === buyPrice);
+  const [showExitEdit, setShowExitEdit] = useState(false);
+  const [editExitPrice, setEditExitPrice] = useState("");
+
+  const exitUpdateMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("PATCH", `/api/calls/${call.id}/exit`, { exitPrice: editExitPrice });
+      return res.json();
+    },
+    onSuccess: () => {
+      if (strategyId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/advisor/strategies", strategyId, "calls"] });
+      }
+      setShowExitEdit(false);
+      setEditExitPrice("");
+      toast({ title: "Exit price updated" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
 
   return (
     <div
@@ -677,6 +702,47 @@ function CallRow({
         </div>
         {call.rationale && (
           <p className="text-xs text-muted-foreground mt-1 italic">{call.rationale}</p>
+        )}
+        {isMissingExitData && !showExitEdit && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-2"
+            onClick={() => setShowExitEdit(true)}
+            data-testid={`button-update-exit-call-${call.id}`}
+          >
+            <Pencil className="w-3 h-3 mr-1" />
+            Update Exit Price
+          </Button>
+        )}
+        {showExitEdit && (
+          <div className="flex items-center gap-2 mt-2">
+            <Input
+              type="number"
+              step="0.01"
+              value={editExitPrice}
+              onChange={(e) => setEditExitPrice(e.target.value)}
+              placeholder="Exit price"
+              className="w-32"
+              data-testid={`input-exit-price-call-${call.id}`}
+            />
+            <Button
+              size="sm"
+              onClick={() => exitUpdateMutation.mutate()}
+              disabled={exitUpdateMutation.isPending || !editExitPrice || Number(editExitPrice) <= 0}
+              data-testid={`button-save-exit-call-${call.id}`}
+            >
+              {exitUpdateMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => { setShowExitEdit(false); setEditExitPrice(""); }}
+              data-testid={`button-cancel-exit-call-${call.id}`}
+            >
+              <X className="w-3 h-3" />
+            </Button>
+          </div>
         )}
       </div>
       {isActive && (
@@ -1245,9 +1311,13 @@ function CloseCallDialog({
 }) {
   const { toast } = useToast();
   const [sellPrice, setSellPrice] = useState("");
+  const [useManualPrice, setUseManualPrice] = useState(false);
 
   useEffect(() => {
-    if (call) setSellPrice("");
+    if (call) {
+      setSellPrice("");
+      setUseManualPrice(false);
+    }
   }, [call]);
 
   const isFnO = ["Option", "Future", "Index", "CommodityFuture"].includes(strategyType);
@@ -1269,8 +1339,16 @@ function CloseCallDialog({
   });
 
   const handleFnOClose = () => {
+    if (useManualPrice) {
+      if (!sellPrice || Number(sellPrice) <= 0) {
+        toast({ title: "Enter a valid exit price", variant: "destructive" });
+        return;
+      }
+      mutation.mutate({ sellPrice });
+      return;
+    }
     if (!currentLTP) {
-      toast({ title: "Market price unavailable", description: "Please wait for live price to load or try again later.", variant: "destructive" });
+      toast({ title: "Market price unavailable", description: "Use 'Enter Price Manually' to provide the exit price.", variant: "destructive" });
       return;
     }
     mutation.mutate({ sellPrice: String(currentLTP), closeAtMarket: true });
@@ -1288,27 +1366,46 @@ function CloseCallDialog({
           </div>
           {isFnO ? (
             <>
-              {currentLTP !== undefined ? (
+              {!useManualPrice && currentLTP !== undefined ? (
                 <div className="text-sm font-medium">
                   Current Market Price: {"\u20B9"}{currentLTP.toFixed(2)}
                 </div>
-              ) : (
+              ) : !useManualPrice ? (
                 <div className="text-sm text-amber-600 dark:text-amber-400">
-                  Live price is loading or market is closed...
+                  Live price unavailable. Use manual entry below.
+                </div>
+              ) : null}
+              {useManualPrice && (
+                <div className="space-y-1.5">
+                  <Label>Exit / Sell Price</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={sellPrice}
+                    onChange={(e) => setSellPrice(e.target.value)}
+                    placeholder="Enter exit price manually"
+                    data-testid="input-manual-sell-price"
+                  />
                 </div>
               )}
-              <p className="text-sm text-muted-foreground">
-                This F&O call will be closed at the prevailing market price.
-              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => setUseManualPrice(!useManualPrice)}
+                data-testid="button-toggle-manual-price"
+              >
+                {useManualPrice ? "Use Market Price" : "Enter Price Manually"}
+              </Button>
               <Button
                 className="w-full"
                 variant="destructive"
                 onClick={handleFnOClose}
-                disabled={mutation.isPending || !currentLTP}
+                disabled={mutation.isPending || (!useManualPrice && !currentLTP)}
                 data-testid="button-confirm-close-call"
               >
                 {mutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
-                Confirm Close at Market Price
+                {useManualPrice ? "Close Call" : "Confirm Close at Market Price"}
               </Button>
             </>
           ) : (
