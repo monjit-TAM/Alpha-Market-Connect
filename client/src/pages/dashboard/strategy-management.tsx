@@ -712,6 +712,7 @@ function PositionRow({
   livePrice?: { ltp: number; change: number; changePercent: number };
   optionPremiumLTP?: number | null;
 }) {
+  const { toast } = useToast();
   const isActive = position.status === "Active";
   const entryPx = Number(position.entryPrice || 0);
   const isFnO = position.strikePrice && position.expiry;
@@ -723,6 +724,26 @@ function PositionRow({
         ? ((entryPx - currentPx) / entryPx) * 100
         : ((currentPx - entryPx) / entryPx) * 100)
     : null;
+
+  const [editingExit, setEditingExit] = useState(false);
+  const [exitPriceInput, setExitPriceInput] = useState("");
+
+  const exitMutation = useMutation({
+    mutationFn: async (data: { exitPrice: string }) => {
+      const res = await apiRequest("PATCH", `/api/positions/${position.id}/exit`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/advisor/strategies", strategyId, "positions"] });
+      setEditingExit(false);
+      toast({ title: "Exit price updated" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const isMissingExitData = !isActive && (position.exitPrice == null || position.exitPrice === "");
 
   return (
     <div
@@ -786,6 +807,55 @@ function PositionRow({
             <span>Closed: {new Date(position.exitDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })} {new Date(position.exitDate).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}</span>
           )}
         </div>
+        {isMissingExitData && !editingExit && (
+          <div className="mt-2 flex items-center gap-2">
+            <span className="text-xs text-amber-600 dark:text-amber-400">Exit price missing</span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setEditingExit(true)}
+              data-testid={`button-update-exit-${position.id}`}
+            >
+              <Pencil className="w-3 h-3 mr-1" />
+              Update Exit Price
+            </Button>
+          </div>
+        )}
+        {editingExit && (
+          <div className="mt-2 flex items-center gap-2">
+            <Input
+              type="number"
+              step="0.01"
+              value={exitPriceInput}
+              onChange={(e) => setExitPriceInput(e.target.value)}
+              placeholder="Enter exit price"
+              className="w-32 h-8 text-xs"
+              data-testid={`input-update-exit-${position.id}`}
+            />
+            <Button
+              size="sm"
+              onClick={() => {
+                if (!exitPriceInput || Number(exitPriceInput) <= 0) {
+                  toast({ title: "Invalid price", variant: "destructive" });
+                  return;
+                }
+                exitMutation.mutate({ exitPrice: exitPriceInput });
+              }}
+              disabled={exitMutation.isPending}
+              data-testid={`button-save-exit-${position.id}`}
+            >
+              {exitMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "Save"}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => { setEditingExit(false); setExitPriceInput(""); }}
+              data-testid={`button-cancel-exit-${position.id}`}
+            >
+              Cancel
+            </Button>
+          </div>
+        )}
         {position.rationale && (
           <p className="text-xs text-muted-foreground mt-1 italic">{position.rationale}</p>
         )}
@@ -1289,9 +1359,13 @@ function ClosePositionDialog({
 }) {
   const { toast } = useToast();
   const [exitPrice, setExitPrice] = useState("");
+  const [useManualPrice, setUseManualPrice] = useState(false);
 
   useEffect(() => {
-    if (position) setExitPrice("");
+    if (position) {
+      setExitPrice("");
+      setUseManualPrice(false);
+    }
   }, [position]);
 
   const isFnO = ["Option", "Future", "Index", "CommodityFuture"].includes(strategyType) ||
@@ -1318,8 +1392,16 @@ function ClosePositionDialog({
   });
 
   const handleFnOClose = () => {
+    if (useManualPrice) {
+      if (!exitPrice || Number(exitPrice) <= 0) {
+        toast({ title: "Exit price required", description: "Please enter a valid exit price.", variant: "destructive" });
+        return;
+      }
+      mutation.mutate({ exitPrice: String(exitPrice) });
+      return;
+    }
     if (!currentLTP) {
-      toast({ title: "Market price unavailable", description: "Please wait for live price to load or try again later.", variant: "destructive" });
+      toast({ title: "Market price unavailable", description: "Please enter exit price manually or wait for live price.", variant: "destructive" });
       return;
     }
     mutation.mutate({ exitPrice: String(currentLTP), closeAtMarket: true });
@@ -1342,27 +1424,49 @@ function ClosePositionDialog({
           </div>
           {isFnO ? (
             <>
-              {currentLTP != null ? (
+              {!useManualPrice && currentLTP != null ? (
                 <div className="text-sm font-medium">
                   Current Market Price: {"\u20B9"}{Number(currentLTP).toFixed(2)}
                 </div>
-              ) : (
+              ) : !useManualPrice ? (
                 <div className="text-sm text-amber-600 dark:text-amber-400">
                   Live price is loading or market is closed...
                 </div>
+              ) : null}
+              {useManualPrice ? (
+                <div className="space-y-1.5">
+                  <Label>Exit / Close Price</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={exitPrice}
+                    onChange={(e) => setExitPrice(e.target.value)}
+                    placeholder="Enter exit price"
+                    data-testid="input-exit-price-manual"
+                  />
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  This F&O position will be closed at the prevailing market price.
+                </p>
               )}
-              <p className="text-sm text-muted-foreground">
-                This F&O position will be closed at the prevailing market price.
-              </p>
               <Button
                 className="w-full"
                 variant="destructive"
                 onClick={handleFnOClose}
-                disabled={mutation.isPending || !currentLTP}
+                disabled={mutation.isPending || (!useManualPrice && !currentLTP)}
                 data-testid="button-confirm-close-position"
               >
                 {mutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
-                Confirm Close at Market Price
+                {useManualPrice ? "Close at Entered Price" : "Confirm Close at Market Price"}
+              </Button>
+              <Button
+                variant="ghost"
+                className="w-full"
+                onClick={() => setUseManualPrice(!useManualPrice)}
+                data-testid="button-toggle-manual-price"
+              >
+                {useManualPrice ? "Use Market Price Instead" : "Enter Price Manually"}
               </Button>
             </>
           ) : (

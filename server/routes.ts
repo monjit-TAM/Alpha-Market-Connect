@@ -1200,6 +1200,39 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/positions/:id/exit", requireAdvisor, async (req, res) => {
+    try {
+      const pos = await storage.getPosition(req.params.id as string);
+      if (!pos) return res.status(404).send("Position not found");
+      const strategy = await storage.getStrategy(pos.strategyId);
+      if (!strategy || strategy.advisorId !== req.session.userId) {
+        return res.status(403).send("Not authorized");
+      }
+      if (pos.status !== "Closed") {
+        return res.status(400).send("Can only update exit data on closed positions");
+      }
+      const { exitPrice } = req.body;
+      if (!exitPrice || Number(exitPrice) <= 0) {
+        return res.status(400).send("Valid exit price is required");
+      }
+      const entryPx = Number(pos.entryPrice || 0);
+      const exitPx = Number(exitPrice);
+      let gainPercent: string | null = null;
+      if (entryPx > 0 && exitPx > 0) {
+        const isSell = pos.buySell === "Sell";
+        gainPercent = (isSell ? ((entryPx - exitPx) / entryPx) * 100 : ((exitPx - entryPx) / entryPx) * 100).toFixed(2);
+      }
+      const updated = await storage.updatePosition(pos.id, {
+        exitPrice: String(exitPx),
+        gainPercent,
+        exitDate: pos.exitDate || new Date(),
+      });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
   app.get("/api/strategies/:id/subscription-status", requireAuth, async (req, res) => {
     try {
       const sub = await storage.getUserSubscriptionForStrategy(req.session.userId!, req.params.id as string);

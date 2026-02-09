@@ -684,6 +684,37 @@ export async function getOptionChain(
   }
 }
 
+export async function getOptionPremiumLTP(
+  symbol: string,
+  expiry: string,
+  strikePrice: number,
+  callPut: string
+): Promise<number | null> {
+  try {
+    const exchange = symbol.toUpperCase().includes("BANKNIFTY") ? "NSE" :
+                     symbol.toUpperCase().includes("NIFTY") ? "NSE" : "NSE";
+    const underlying = symbol.toUpperCase().replace(/\s+/g, "");
+    const formattedExpiry = expiry.includes("T") ? expiry.split("T")[0] : expiry;
+
+    const strikes = await getOptionChain(exchange, underlying, formattedExpiry);
+    if (strikes.length === 0) return null;
+
+    const matchedStrike = strikes.find(s => Math.abs(s.strikePrice - strikePrice) < 0.01);
+    if (!matchedStrike) return null;
+
+    const optType = callPut?.toLowerCase();
+    if (optType === "call" || optType === "ce") {
+      return matchedStrike.ce?.ltp ?? null;
+    } else if (optType === "put" || optType === "pe") {
+      return matchedStrike.pe?.ltp ?? null;
+    }
+    return null;
+  } catch (err) {
+    console.error(`[Groww] Error fetching option premium for ${symbol} ${strikePrice} ${callPut}:`, err);
+    return null;
+  }
+}
+
 export async function getBulkOHLC(
   symbols: string[],
   segment: string = "CASH"

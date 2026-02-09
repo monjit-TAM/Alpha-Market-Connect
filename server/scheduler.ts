@@ -2,7 +2,7 @@ import { storage } from "./storage";
 import { db } from "./db";
 import { calls, positions, strategies } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
-import { getLiveQuote } from "./groww";
+import { getLiveQuote, getOptionPremiumLTP } from "./groww";
 
 function getISTTime(): Date {
   const now = new Date();
@@ -59,10 +59,52 @@ async function autoSquareOffIntraday() {
         .where(and(eq(positions.strategyId, strategy.id), eq(positions.status, "Active")));
 
       for (const pos of activePositions) {
+        const entryPx = Number(pos.entryPrice || 0);
+        let exitPx = entryPx;
+        let posGainPercent = 0;
+        let priceSource = "entry_fallback";
+
+        try {
+          const isFnOOption = pos.strikePrice && pos.expiry && pos.callPut;
+          if (isFnOOption) {
+            const premiumLTP = await getOptionPremiumLTP(
+              pos.symbol || "",
+              pos.expiry!,
+              Number(pos.strikePrice),
+              pos.callPut!
+            );
+            if (premiumLTP != null && premiumLTP > 0) {
+              exitPx = premiumLTP;
+              priceSource = "option_chain";
+            } else {
+              console.warn(`[Scheduler] Option premium unavailable for ${pos.symbol} ${pos.strikePrice} ${pos.callPut}, using entry price fallback. Advisor should update exit price manually.`);
+              priceSource = "entry_fallback";
+            }
+          } else {
+            const posQuote = await getLiveQuote(pos.symbol || "", strategy.type);
+            if (posQuote && posQuote.ltp > 0) {
+              exitPx = posQuote.ltp;
+              priceSource = "live_quote";
+            }
+          }
+
+          if (entryPx > 0 && exitPx > 0) {
+            const isSell = pos.buySell === "Sell";
+            posGainPercent = isSell
+              ? ((entryPx - exitPx) / entryPx) * 100
+              : ((exitPx - entryPx) / entryPx) * 100;
+          }
+        } catch (e) {
+          console.error(`[Scheduler] Could not fetch live price for position ${pos.symbol}, using entry price`);
+        }
+
         await storage.updatePosition(pos.id, {
           status: "Closed",
+          exitPrice: String(exitPx.toFixed(2)),
+          gainPercent: String(posGainPercent.toFixed(2)),
+          exitDate: new Date(),
         });
-        console.log(`[Scheduler] Auto-squared off intraday position ${pos.id} (${pos.symbol})`);
+        console.log(`[Scheduler] Auto-squared off intraday position ${pos.id} (${pos.symbol}) at \u20B9${exitPx.toFixed(2)}, P&L: ${posGainPercent.toFixed(2)}% [source: ${priceSource}]`);
       }
     }
   } catch (err) {
