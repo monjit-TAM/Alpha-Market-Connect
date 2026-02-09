@@ -106,20 +106,23 @@ async function persistTokenToDb(token: string, expiry: number, setAt: number): P
 export async function loadPersistedGrowwToken(): Promise<void> {
   try {
     const row = await db.select().from(appSettings).where(eq(appSettings.key, "groww_access_token")).limit(1);
-    if (row.length === 0 || !row[0].value) return;
-
-    const { token, expiry, setAt } = JSON.parse(row[0].value);
-    if (!token || !expiry || Date.now() >= expiry) {
-      console.log("[Groww] Persisted token expired or invalid, skipping");
-      return;
+    if (row.length > 0 && row[0].value) {
+      const { token, expiry, setAt } = JSON.parse(row[0].value);
+      if (token && expiry && Date.now() < expiry) {
+        cachedAccessToken = token;
+        tokenExpiry = expiry;
+        tokenSetAt = setAt || Date.now();
+        tokenSource = "manual";
+        const remainingHours = Math.round((expiry - Date.now()) / 3600000);
+        console.log(`[Groww] Restored persisted access token, expires in ~${remainingHours}h`);
+        return;
+      }
+      console.log("[Groww] Persisted token expired or invalid");
     }
 
-    cachedAccessToken = token;
-    tokenExpiry = expiry;
-    tokenSetAt = setAt || Date.now();
-    tokenSource = "manual";
-    const remainingHours = Math.round((expiry - Date.now()) / 3600000);
-    console.log(`[Groww] Restored persisted access token, expires in ~${remainingHours}h`);
+    if (process.env.GROWW_API_KEY && process.env.GROWW_API_SECRET) {
+      console.log("[Groww] No valid persisted token, will acquire on first request");
+    }
   } catch (err) {
     console.error("[Groww] Failed to load persisted token:", err);
   }
@@ -142,11 +145,26 @@ export function getGrowwTokenStatus(): {
   };
 }
 
+let tokenAcquireInProgress: Promise<string> | null = null;
+
 async function getAccessToken(): Promise<string> {
   if (cachedAccessToken && Date.now() < tokenExpiry) {
     return cachedAccessToken;
   }
 
+  if (tokenAcquireInProgress) {
+    return tokenAcquireInProgress;
+  }
+
+  tokenAcquireInProgress = acquireAccessToken();
+  try {
+    return await tokenAcquireInProgress;
+  } finally {
+    tokenAcquireInProgress = null;
+  }
+}
+
+async function acquireAccessToken(maxRetries = 3): Promise<string> {
   const apiKey = process.env.GROWW_API_KEY;
   const apiSecret = process.env.GROWW_API_SECRET;
 
@@ -154,44 +172,68 @@ async function getAccessToken(): Promise<string> {
     throw new Error("GROWW_API_KEY or GROWW_API_SECRET not configured. Please set a Groww access token from the admin portal.");
   }
 
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-  const checksum = generateChecksum(apiSecret, timestamp);
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const checksum = generateChecksum(apiSecret, timestamp);
 
-  console.log(`[Groww] Requesting access token via API Key+Secret...`);
+    if (attempt === 0) {
+      console.log(`[Groww] Requesting access token via API Key+Secret...`);
+    } else {
+      console.log(`[Groww] Retry attempt ${attempt + 1}/${maxRetries} for access token...`);
+    }
 
-  const response = await fetch(`${GROWW_API_BASE}/token/api/access`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      key_type: "approval",
-      checksum,
-      timestamp,
-    }),
-  });
+    try {
+      const response = await fetch(`${GROWW_API_BASE}/token/api/access`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          key_type: "approval",
+          checksum,
+          timestamp,
+        }),
+      });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error(`[Groww] Token exchange failed: ${response.status} - ${errorText}`);
-    throw new Error(`Groww token exchange failed: ${response.status}`);
+      if (response.status === 429) {
+        const waitMs = Math.min(2000 * Math.pow(2, attempt), 15000);
+        console.log(`[Groww] Rate limited (429), waiting ${waitMs}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, waitMs));
+        continue;
+      }
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[Groww] Token exchange failed: ${response.status} - ${errorText}`);
+        throw new Error(`Groww token exchange failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (!data.token) {
+        console.error("[Groww] No token in response:", data);
+        throw new Error("Groww token exchange returned no token");
+      }
+
+      cachedAccessToken = data.token;
+      const msUntilExpiry = computeExpiryMs();
+      tokenExpiry = Date.now() + msUntilExpiry - 60000;
+      tokenSetAt = Date.now();
+      tokenSource = "api_key_secret";
+
+      persistTokenToDb(cachedAccessToken!, tokenExpiry, tokenSetAt).catch(err =>
+        console.error("[Groww] Failed to persist token to DB:", err)
+      );
+
+      console.log(`[Groww] Access token obtained via API Key+Secret, expires in ${Math.round(msUntilExpiry / 3600000)}h`);
+      return cachedAccessToken!;
+    } catch (err: any) {
+      if (attempt < maxRetries - 1 && err.message?.includes("429")) continue;
+      throw err;
+    }
   }
 
-  const data = await response.json();
-  if (!data.token) {
-    console.error("[Groww] No token in response:", data);
-    throw new Error("Groww token exchange returned no token");
-  }
-
-  cachedAccessToken = data.token;
-  const msUntilExpiry = computeExpiryMs();
-  tokenExpiry = Date.now() + msUntilExpiry - 60000;
-  tokenSetAt = Date.now();
-  tokenSource = "api_key_secret";
-
-  console.log(`[Groww] Access token obtained via API Key+Secret, expires in ${Math.round(msUntilExpiry / 3600000)}h`);
-  return cachedAccessToken!;
+  throw new Error("Groww token exchange failed after retries (rate limited)");
 }
 
 function getHeaders(accessToken: string): Record<string, string> {
