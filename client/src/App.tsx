@@ -27,6 +27,7 @@ import InvestorDashboard from "@/pages/investor-dashboard";
 import RiskProfilingPage from "@/pages/risk-profiling";
 import EkycPage from "@/pages/ekyc";
 import EsignAgreementPage from "@/pages/esign-agreement";
+import StrategyPerformance from "@/pages/strategy-performance";
 import { TermsAndConditions, CancellationPolicy, PrivacyPolicy, LegalAgreement, ShippingAndReturns, ContactUs } from "@/pages/legal";
 
 function Router() {
@@ -41,6 +42,7 @@ function Router() {
       <Route path="/strategies/:id/subscribe" component={SubscribePage} />
       <Route path="/strategies/:id/esign-agreement" component={EsignAgreementPage} />
       <Route path="/strategies/:id/payment" component={PaymentPage} />
+      <Route path="/strategies/:id/performance" component={StrategyPerformance} />
       <Route path="/strategies/:id" component={StrategyDetail} />
       <Route path="/advisors" component={AdvisorsListing} />
       <Route path="/advisors/:id" component={AdvisorDetail} />

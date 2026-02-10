@@ -43,6 +43,8 @@ AlphaMarket utilizes a modern web application architecture with a clear separati
 
 - **e-Sign Agreement:** Mandatory electronic agreement signing before subscription payment per SEBI mandate. Flow: Select plan → Review & sign agreement (Aadhaar OTP) → Payment → eKYC → Risk profiling. Agreement uses Sandbox.co.in Aadhaar OTP as digital consent mechanism. Stores aadhaarLast4, aadhaarName, signedAt in `esign_agreements` table. Agreement linked to subscription after successful payment via subscriptionId. Email notifications sent to both investor and advisor with signed agreement copy. Advisor dashboard "Customers Acquired" section shows clickable "View" for agreement details dialog. Routes: `/strategies/:id/esign-agreement?plan=planId`. API: `POST /api/esign/otp`, `POST /api/esign/verify`, `GET /api/esign/status?strategyId=X&planId=Y`, `GET /api/advisor/agreements/:subscriptionId`. Table: `esign_agreements`. Helper uses `server/sandbox-kyc.ts`.
 
+- **Performance Reveal:** Per-strategy performance disclosure with SEBI-mandated disclaimer. Replaces CAGR card on strategy detail page with locked performance metric (Hit Rate for F&O/Intraday, Absolute Performance for Positional/Swing/Basket). Flow: Click lock icon -> Read SEBI disclaimer -> Login required -> Reveal per-strategy (localStorage). Detailed performance page at `/strategies/:id/performance` shows period-wise breakdown (1W-Max), max profitable call, max drawdown, win/loss stats, and NIFTY benchmark comparison. API: `GET /api/strategies/:id/performance`. Page: `client/src/pages/strategy-performance.tsx`.
+
 ## External Dependencies
 - **Database:** PostgreSQL (via Neon)
 - **Payment Gateway:** Cashfree Payment Gateway (using `cashfree-pg SDK v5`)

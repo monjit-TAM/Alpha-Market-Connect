@@ -435,6 +435,130 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/strategies/:id/performance", requireAuth, async (req, res) => {
+    try {
+      const strategy = await storage.getStrategy(req.params.id);
+      if (!strategy) return res.status(404).send("Strategy not found");
+
+      const allCalls = await storage.getCalls(req.params.id);
+      const allPositions = await storage.getPositions(req.params.id);
+
+      const closedCalls = allCalls.filter((c: any) => c.status === "Closed");
+      const closedPositions = allPositions.filter((p: any) => p.status === "Closed");
+
+      interface ClosedEntry {
+        type: "call" | "position";
+        id: string;
+        label: string;
+        gainPercent: number;
+        entryPrice: number;
+        exitPrice: number;
+        exitDate: Date | null;
+        createdAt: Date | null;
+      }
+
+      const entries: ClosedEntry[] = [
+        ...closedCalls.map((c: any) => ({
+          type: "call" as const,
+          id: c.id,
+          label: c.stockName,
+          gainPercent: Number(c.gainPercent || 0),
+          entryPrice: Number(c.entryPrice || c.buyRangeStart || 0),
+          exitPrice: Number(c.sellPrice || 0),
+          exitDate: c.exitDate ? new Date(c.exitDate) : null,
+          createdAt: c.createdAt ? new Date(c.createdAt) : null,
+        })),
+        ...closedPositions.map((p: any) => ({
+          type: "position" as const,
+          id: p.id,
+          label: `${p.symbol || ""}${p.expiry ? " " + p.expiry : ""}${p.strikePrice ? " " + p.strikePrice : ""}${p.callPut ? " " + p.callPut : ""}`.trim(),
+          gainPercent: Number(p.gainPercent || 0),
+          entryPrice: Number(p.entryPrice || 0),
+          exitPrice: Number(p.exitPrice || 0),
+          exitDate: p.exitDate ? new Date(p.exitDate) : null,
+          createdAt: p.createdAt ? new Date(p.createdAt) : null,
+        })),
+      ];
+
+      const closedCount = entries.length;
+      const profitableCount = entries.filter((e) => e.gainPercent > 0).length;
+      const lossCount = entries.filter((e) => e.gainPercent < 0).length;
+      const hitRate = closedCount > 0 ? Math.round((profitableCount / closedCount) * 10000) / 100 : 0;
+      const absoluteReturn = entries.reduce((sum, e) => sum + e.gainPercent, 0);
+      const avgReturn = closedCount > 0 ? Math.round((absoluteReturn / closedCount) * 100) / 100 : 0;
+
+      const profitableEntries = entries.filter((e) => e.gainPercent > 0);
+      const lossEntries = entries.filter((e) => e.gainPercent < 0);
+      const maxProfitEntry = profitableEntries.length > 0 ? profitableEntries.reduce((best, e) => e.gainPercent > best.gainPercent ? e : best, profitableEntries[0]) : null;
+      const maxDrawdownEntry = lossEntries.length > 0 ? lossEntries.reduce((worst, e) => e.gainPercent < worst.gainPercent ? e : worst, lossEntries[0]) : null;
+
+      const now = new Date();
+      const periodDefs = [
+        { label: "1W", days: 7 },
+        { label: "1M", days: 30 },
+        { label: "3M", days: 90 },
+        { label: "6M", days: 180 },
+        { label: "1Y", days: 365 },
+        { label: "3Y", days: 1095 },
+        { label: "Max", days: 99999 },
+      ];
+
+      const periods = periodDefs.map(({ label, days }) => {
+        const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+        const filtered = entries.filter((e) => {
+          const d = e.exitDate || e.createdAt;
+          return d && d >= cutoff;
+        });
+        const count = filtered.length;
+        const profitable = filtered.filter((e) => e.gainPercent > 0).length;
+        const totalReturn = filtered.reduce((s, e) => s + e.gainPercent, 0);
+        return {
+          label,
+          closedCount: count,
+          profitableCount: profitable,
+          hitRate: count > 0 ? Math.round((profitable / count) * 10000) / 100 : 0,
+          absoluteReturn: Math.round(totalReturn * 100) / 100,
+          avgReturn: count > 0 ? Math.round((totalReturn / count) * 100) / 100 : 0,
+        };
+      });
+
+      const strategyType = strategy.type;
+      const isHitRateStrategy = ["Option", "Future", "CommodityFuture"].includes(strategyType) ||
+        (strategy.horizon && ["Intraday"].includes(strategy.horizon));
+
+      res.json({
+        strategyId: req.params.id,
+        strategyType,
+        isHitRateStrategy,
+        totals: {
+          closedCount,
+          profitableCount,
+          lossCount,
+          hitRate,
+          absoluteReturn: Math.round(absoluteReturn * 100) / 100,
+          avgReturn,
+        },
+        periods,
+        maxProfit: maxProfitEntry ? {
+          type: maxProfitEntry.type,
+          id: maxProfitEntry.id,
+          label: maxProfitEntry.label,
+          gainPercent: maxProfitEntry.gainPercent,
+          exitDate: maxProfitEntry.exitDate,
+        } : null,
+        maxDrawdown: maxDrawdownEntry ? {
+          type: maxDrawdownEntry.type,
+          id: maxDrawdownEntry.id,
+          label: maxDrawdownEntry.label,
+          gainPercent: maxDrawdownEntry.gainPercent,
+          exitDate: maxDrawdownEntry.exitDate,
+        } : null,
+      });
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
   app.get("/api/symbols/search", async (req, res) => {
     try {
       const q = ((req.query.q as string) || "").toLowerCase().trim();

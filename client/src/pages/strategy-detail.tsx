@@ -1,3 +1,4 @@
+import { useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams, useLocation, Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -5,12 +6,68 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
-import { TrendingUp, Calendar, BarChart3, Star, Lock, Zap, Shield, Eye, ArrowUp, ArrowDown } from "lucide-react";
+import { TrendingUp, Calendar, BarChart3, Star, Lock, Zap, Shield, Eye, ArrowUp, ArrowDown, Unlock } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import type { Strategy, Call, User, Position } from "@shared/schema";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+
+const DISCLAIMER_TEXT = `I request that the SEBI-registered Investment Advisor/Research Analyst display the performance metrics of the strategies published on the AlphaMarket platform. I understand that, as per SEBI's updated guidelines permitting disclosure of past performance, only verified, unaltered, and accurately computed performance records may be shared, and such disclosures must strictly adhere to SEBI's prescribed methodology and presentation standards.
+
+I acknowledge that the performance data shown is computed from the date the Advisor/Analyst began publishing advisory calls through the AlphaMarket platform and is based on live tracking of each call until it is closed or until its target or stop-loss is triggered. I further understand that the data reflects the Advisor's actual call history as maintained by the platform and has not been modified, optimized, or back-tested.
+
+I am aware that past performance is not a reliable indicator of future returns, and that SEBI permits its disclosure only for transparency\u2014not as a promise, forecast, or assurance of future performance. I also understand that any metrics displayed comply with SEBI's definitions, including the segregation of performance by strategy type and by nature of calls.
+
+I confirm that I will exercise independent judgment, caution, and discretion when reviewing this information. Every investment strategy carries risk, and may not be suitable for all investors. I agree to review the strategy methodology, risk factors, and other relevant documents before subscribing.
+
+Performance Metrics Used on AlphaMarket
+AlphaMarket follows SEBI-aligned performance methodologies:
+
+Hit Rate indicates the percentage of advisory calls closed in profit and is applicable to F&O and Intraday strategies.
+Absolute Performance reflects overall strategy performance since inception and is applicable to Positional, Basket, and Swing Trading strategies.
+All metrics are derived from actual platform-recorded advisory calls and comply with SEBI's requirements for transparency, accuracy, and non-promotional presentation.
+
+By proceeding, I acknowledge that I have requested this performance information for my personal evaluation and that I understand and agree to these terms.`;
+
+function isPerformanceRevealed(strategyId: string): boolean {
+  try {
+    return localStorage.getItem(`performanceReveal:${strategyId}`) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function markPerformanceRevealed(strategyId: string) {
+  try {
+    localStorage.setItem(`performanceReveal:${strategyId}`, "true");
+  } catch {}
+}
+
+interface PerformanceData {
+  strategyId: string;
+  strategyType: string;
+  isHitRateStrategy: boolean;
+  totals: {
+    closedCount: number;
+    profitableCount: number;
+    lossCount: number;
+    hitRate: number;
+    absoluteReturn: number;
+    avgReturn: number;
+  };
+}
 
 interface LivePrice {
   symbol: string;
@@ -34,9 +91,16 @@ export default function StrategyDetail() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [, navigate] = useLocation();
+  const [showDisclaimer, setShowDisclaimer] = useState(false);
+  const [revealed, setRevealed] = useState(() => id ? isPerformanceRevealed(id) : false);
 
   const { data: strategy, isLoading } = useQuery<Strategy & { advisor?: User }>({
     queryKey: ["/api/strategies", id],
+  });
+
+  const { data: performanceData } = useQuery<PerformanceData>({
+    queryKey: ["/api/strategies", id, "performance"],
+    enabled: !!id && revealed && !!user,
   });
 
   const { data: calls } = useQuery<Call[]>({
@@ -93,6 +157,27 @@ export default function StrategyDetail() {
     navigate(`/strategies/${id}/subscribe`);
   };
 
+  const handlePerformanceClick = useCallback(() => {
+    if (revealed) {
+      navigate(`/strategies/${id}/performance`);
+      return;
+    }
+    setShowDisclaimer(true);
+  }, [revealed, id, navigate]);
+
+  const handleDisclaimerAccept = useCallback(() => {
+    setShowDisclaimer(false);
+    if (!user) {
+      toast({ title: "Please sign in to view performance", description: "You need to be logged in to reveal strategy performance." });
+      navigate("/login");
+      return;
+    }
+    if (id) {
+      markPerformanceRevealed(id);
+      setRevealed(true);
+    }
+  }, [user, id, navigate, toast]);
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background">
@@ -146,14 +231,39 @@ export default function StrategyDetail() {
             </p>
 
             <div className="grid grid-cols-2 gap-4">
-              <Card>
+              <Card
+                className="cursor-pointer hover-elevate"
+                onClick={handlePerformanceClick}
+                data-testid="card-performance"
+              >
                 <CardContent className="p-4 flex items-center gap-3">
                   <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center">
-                    <TrendingUp className="w-5 h-5 text-primary" />
+                    {revealed ? (
+                      <TrendingUp className="w-5 h-5 text-primary" />
+                    ) : (
+                      <Lock className="w-5 h-5 text-primary" />
+                    )}
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">CAGR</p>
-                    <p className="font-semibold" data-testid="text-cagr">{strategy.cagr ? `${strategy.cagr}%` : "--"}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {(["Option", "Future", "CommodityFuture"].includes(strategy.type) ||
+                        strategy.horizon === "Intraday")
+                        ? "Hit Rate"
+                        : "Absolute Performance"}
+                    </p>
+                    {revealed && performanceData ? (
+                      <p className="font-semibold" data-testid="text-performance-value">
+                        {performanceData.isHitRateStrategy
+                          ? `${performanceData.totals.hitRate}%`
+                          : `${performanceData.totals.absoluteReturn >= 0 ? "+" : ""}${performanceData.totals.absoluteReturn}%`}
+                      </p>
+                    ) : revealed ? (
+                      <Skeleton className="h-5 w-12" />
+                    ) : (
+                      <p className="font-semibold text-muted-foreground flex items-center gap-1" data-testid="text-performance-locked">
+                        <Lock className="w-3 h-3" /> Reveal
+                      </p>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -537,6 +647,30 @@ export default function StrategyDetail() {
         </div>
       </div>
       <Footer />
+
+      <AlertDialog open={showDisclaimer} onOpenChange={setShowDisclaimer}>
+        <AlertDialogContent className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Shield className="w-5 h-5 text-primary" />
+              Performance Disclosure - SEBI Disclaimer
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <ScrollArea className="h-[300px] mt-2 pr-4">
+                <div className="text-sm text-muted-foreground whitespace-pre-line leading-relaxed">
+                  {DISCLAIMER_TEXT}
+                </div>
+              </ScrollArea>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-disclaimer-cancel">Decline</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDisclaimerAccept} data-testid="button-disclaimer-accept">
+              I Agree & Reveal Performance
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
