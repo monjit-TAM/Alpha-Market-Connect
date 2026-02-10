@@ -395,14 +395,14 @@ export async function registerRoutes(
       };
       for (const s of strats) {
         const activeCalls = await storage.getCalls(s.id);
-        const activeCount = activeCalls.filter((c: any) => c.status === "Active" && (c.publishMode === "live" || c.isPublished)).length;
+        const activeCount = activeCalls.filter((c: any) => c.status === "Active").length;
         const horizon = (s.horizon || "").toLowerCase();
         const type = s.type;
 
         if (horizon.includes("intraday")) counts["Intraday"] += activeCount;
-        if (type === "Future" || type === "Option") counts["F&O"] += activeCount;
+        if (type === "Future" || type === "Option" || type === "Index") counts["F&O"] += activeCount;
         if (horizon.includes("swing")) counts["Swing"] += activeCount;
-        if (horizon.includes("positional") || horizon.includes("long term")) counts["Positional"] += activeCount;
+        if (horizon.includes("positional") || horizon.includes("long term") || horizon.includes("short term")) counts["Positional"] += activeCount;
         if (type === "Commodity" || type === "CommodityFuture") counts["Commodities"] += activeCount;
         if (type === "Basket") counts["Basket"] += activeCount;
       }
