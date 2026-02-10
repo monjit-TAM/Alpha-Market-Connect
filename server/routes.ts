@@ -395,7 +395,10 @@ export async function registerRoutes(
       };
       for (const s of strats) {
         const activeCalls = await storage.getCalls(s.id);
-        const activeCount = activeCalls.filter((c: any) => c.status === "Active").length;
+        const activePositions = await storage.getPositions(s.id);
+        const activeCallCount = activeCalls.filter((c: any) => c.status === "Active").length;
+        const activePosCount = activePositions.filter((p: any) => p.status === "Active").length;
+        const activeCount = activeCallCount + activePosCount;
         const horizon = (s.horizon || "").toLowerCase();
         const type = s.type;
 

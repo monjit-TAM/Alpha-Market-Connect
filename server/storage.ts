@@ -207,7 +207,8 @@ export class DatabaseStorage implements IStorage {
       const [advisor] = await db.select().from(users).where(eq(users.id, s.advisorId));
       if (!advisor || !advisor.isApproved) continue;
       const stratCalls = await db.select().from(calls).where(eq(calls.strategyId, s.id));
-      const liveCalls = stratCalls.filter((c) => c.status === "Active").length;
+      const stratPositions = await db.select().from(positions).where(eq(positions.strategyId, s.id));
+      const liveCalls = stratCalls.filter((c) => c.status === "Active").length + stratPositions.filter((p) => p.status === "Active").length;
       const { password: _, ...safeAdvisor } = advisor || {} as any;
       result.push({ ...s, advisor: safeAdvisor, liveCalls });
     }
