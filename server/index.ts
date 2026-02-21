@@ -5,6 +5,7 @@ import { createServer } from "http";
 import { seed } from "./seed";
 import { startScheduler } from "./scheduler";
 import { loadPersistedGrowwToken } from "./groww";
+import { ensureBasketTables } from "./db";
 
 const app = express();
 const httpServer = createServer(app);
@@ -63,6 +64,7 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  await ensureBasketTables().catch((err) => console.error("Basket tables error:", err));
   await seed().catch((err) => console.error("Seed error:", err));
   await loadPersistedGrowwToken();
   await registerRoutes(httpServer, app);
