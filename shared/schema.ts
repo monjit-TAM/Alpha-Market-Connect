@@ -45,6 +45,7 @@ export const strategies = pgTable("strategies", {
   riskLevel: text("risk_level"),
   benchmark: text("benchmark"),
   minimumInvestment: numeric("minimum_investment"),
+  rebalanceFrequency: text("rebalance_frequency"),
   cagr: numeric("cagr"),
   planIds: text("plan_ids").array(),
   totalRecommendations: integer("total_recommendations").default(0),

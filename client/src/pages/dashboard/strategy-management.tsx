@@ -10,13 +10,68 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, MoreVertical, Loader2, Pencil, ChevronDown, ChevronRight, X, Search, ArrowUp, ArrowDown, Send, Check, Package, RefreshCw, FileText, Trash2 } from "lucide-react";
+import { Plus, MoreVertical, Loader2, Pencil, ChevronDown, ChevronRight, X, Search, ArrowUp, ArrowDown, Send, Check, Package, RefreshCw, FileText, Trash2, Upload, IndianRupee, CalendarDays } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
+import Papa from "papaparse";
+import * as XLSX from "xlsx";
 import type { Strategy, Call, Position, Plan, BasketRebalance, BasketConstituent, BasketRationale } from "@shared/schema";
+
+function parseBasketFile(
+  file: File,
+  onSuccess: (parsed: { symbol: string; exchange: string; weightPercent: string; quantity: string; priceAtRebalance: string; action: string }[]) => void,
+  onError: (msg: string) => void
+) {
+  const isExcel = file.name.endsWith(".xlsx") || file.name.endsWith(".xls");
+
+  const mapRows = (rows: Record<string, string>[]) => {
+    if (!rows || rows.length === 0) { onError("No valid data rows found"); return; }
+    const keys = Object.keys(rows[0]);
+    const norm = keys.map(k => k.trim().toLowerCase().replace(/[^a-z%]/g, ""));
+    const find = (tests: string[]) => keys[norm.findIndex(n => tests.some(t => t === n || n.includes(t)))] || "";
+    const symbolKey = find(["symbol", "stock"]);
+    const weightKey = find(["weight", "weight%"]);
+    const exchangeKey = find(["exchange"]);
+    const quantityKey = find(["quantity", "qty"]);
+    const priceKey = find(["price", "priceatrebalance", "entryprice"]);
+    const actionKey = find(["action", "buysell"]);
+    if (!symbolKey || !weightKey) { onError("File must contain at least 'Symbol' and 'Weight%' columns"); return; }
+    const parsed = rows.map(row => ({
+      symbol: String(row[symbolKey] || "").trim().toUpperCase(),
+      exchange: exchangeKey ? String(row[exchangeKey] || "NSE").trim() : "NSE",
+      weightPercent: String(row[weightKey] || "").replace("%", "").trim(),
+      quantity: quantityKey ? String(row[quantityKey] || "").trim() : "",
+      priceAtRebalance: priceKey ? String(row[priceKey] || "").trim() : "",
+      action: actionKey ? String(row[actionKey] || "Buy").trim() : "Buy",
+    })).filter(s => s.symbol);
+    if (parsed.length === 0) { onError("No valid data rows found"); return; }
+    onSuccess(parsed);
+  };
+
+  if (isExcel) {
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = new Uint8Array(evt.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json<Record<string, string>>(sheet, { defval: "" });
+        mapRows(rows);
+      } catch { onError("Failed to parse Excel file"); }
+    };
+    reader.readAsArrayBuffer(file);
+  } else {
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => { try { mapRows(results.data as Record<string, string>[]); } catch { onError("Failed to parse CSV file"); } },
+      error: () => { onError("Failed to parse CSV file"); },
+    });
+  }
+}
 import { Skeleton } from "@/components/ui/skeleton";
 
 function getCallActionsForType(type: string): { label: string; mode: "stock" | "position" }[] {
@@ -33,8 +88,7 @@ function getCallActionsForType(type: string): { label: string; mode: "stock" | "
       return [{ label: "Add Commodity Future Call", mode: "position" }];
     case "Basket":
       return [
-        { label: "Add Stock Call", mode: "stock" },
-        { label: "Add Position (F&O)", mode: "position" },
+        { label: "Add Basket Stock", mode: "stock" },
       ];
     default:
       return [
@@ -163,6 +217,7 @@ export default function StrategyManagement() {
   const [showEditStrategy, setShowEditStrategy] = useState(false);
   const [showAddStock, setShowAddStock] = useState(false);
   const [showAddPosition, setShowAddPosition] = useState(false);
+  const [showAddBasketStock, setShowAddBasketStock] = useState(false);
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
   const [expandedStrategy, setExpandedStrategy] = useState<string | null>(null);
 
@@ -298,8 +353,13 @@ export default function StrategyManagement() {
                               key={action.label}
                               onClick={() => {
                                 setSelectedStrategy(s);
-                                if (action.mode === "stock") setShowAddStock(true);
-                                else setShowAddPosition(true);
+                                if (s.type === "Basket" && action.label === "Add Basket Stock") {
+                                  setShowAddBasketStock(true);
+                                } else if (action.mode === "stock") {
+                                  setShowAddStock(true);
+                                } else {
+                                  setShowAddPosition(true);
+                                }
                               }}
                               data-testid={`button-action-${action.label.toLowerCase().replace(/\s+/g, "-")}-${s.id}`}
                             >
@@ -391,6 +451,12 @@ export default function StrategyManagement() {
       <AddPositionSheet
         open={showAddPosition}
         onOpenChange={setShowAddPosition}
+        strategy={selectedStrategy}
+      />
+
+      <AddBasketStockSheet
+        open={showAddBasketStock}
+        onOpenChange={setShowAddBasketStock}
         strategy={selectedStrategy}
       />
     </div>
@@ -1642,6 +1708,8 @@ function StrategyDialog({
     horizon: "",
     volatility: "",
     benchmark: "",
+    minimumInvestment: "",
+    rebalanceFrequency: "",
     planIds: [] as string[],
   });
 
@@ -1656,6 +1724,8 @@ function StrategyDialog({
         horizon: strategy.horizon || "",
         volatility: strategy.volatility || "",
         benchmark: strategy.benchmark || "",
+        minimumInvestment: strategy.minimumInvestment || "",
+        rebalanceFrequency: (strategy as any).rebalanceFrequency || "",
         planIds: strategy.planIds || [],
       });
     } else if (mode === "create" && open) {
@@ -1668,6 +1738,8 @@ function StrategyDialog({
         horizon: "",
         volatility: "",
         benchmark: "",
+        minimumInvestment: "",
+        rebalanceFrequency: "",
         planIds: [],
       });
     }
@@ -1765,6 +1837,36 @@ function StrategyDialog({
               </SelectContent>
             </Select>
           </div>
+
+          {form.type === "Basket" && (
+            <>
+              <div className="space-y-1.5">
+                <Label>Rebalance Frequency</Label>
+                <Select value={form.rebalanceFrequency} onValueChange={(v) => setForm({ ...form, rebalanceFrequency: v })}>
+                  <SelectTrigger data-testid="select-rebalance-frequency">
+                    <SelectValue placeholder="Select Frequency" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Monthly">Monthly</SelectItem>
+                    <SelectItem value="Quarterly">Quarterly</SelectItem>
+                    <SelectItem value="Semi-Annual">Semi-Annual</SelectItem>
+                    <SelectItem value="Annual">Annual</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Minimum Investment (₹)</Label>
+                <Input
+                  type="number"
+                  step="1"
+                  value={form.minimumInvestment}
+                  onChange={(e) => setForm({ ...form, minimumInvestment: e.target.value })}
+                  placeholder="e.g. 50000"
+                  data-testid="input-minimum-investment"
+                />
+              </div>
+            </>
+          )}
 
           <div className="space-y-1.5">
             <Label>Description</Label>
@@ -2434,8 +2536,300 @@ function AddPositionSheet({
   );
 }
 
+function AddBasketStockSheet({
+  open,
+  onOpenChange,
+  strategy,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  strategy: Strategy | null;
+}) {
+  const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [stocks, setStocks] = useState<{ symbol: string; exchange: string; weightPercent: string; quantity: string; priceAtRebalance: string; action: string }[]>([
+    { symbol: "", exchange: "NSE", weightPercent: "", quantity: "", priceAtRebalance: "", action: "Buy" },
+  ]);
+  const [rebalanceNotes, setRebalanceNotes] = useState("");
+
+  const { data: currentConstituents } = useQuery<BasketConstituent[]>({
+    queryKey: ["/api/strategies", strategy?.id, "basket", "constituents"],
+    queryFn: async () => {
+      const res = await fetch(`/api/strategies/${strategy?.id}/basket/constituents`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!strategy?.id && open,
+  });
+
+  const { data: rebalances } = useQuery<BasketRebalance[]>({
+    queryKey: ["/api/strategies", strategy?.id, "basket", "rebalances"],
+    queryFn: async () => {
+      const res = await fetch(`/api/strategies/${strategy?.id}/basket/rebalances`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!strategy?.id && open,
+  });
+
+  const rebalanceMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", `/api/strategies/${strategy?.id}/basket/rebalance`, data);
+      if (!res.ok) {
+        const msg = await res.text();
+        throw new Error(msg);
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/strategies", strategy?.id, "basket", "rebalances"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/strategies", strategy?.id, "basket", "constituents"] });
+      onOpenChange(false);
+      setStocks([{ symbol: "", exchange: "NSE", weightPercent: "", quantity: "", priceAtRebalance: "", action: "Buy" }]);
+      setRebalanceNotes("");
+      toast({ title: "Basket updated successfully" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const addStock = () => {
+    setStocks([...stocks, { symbol: "", exchange: "NSE", weightPercent: "", quantity: "", priceAtRebalance: "", action: "Buy" }]);
+  };
+
+  const removeStock = (idx: number) => {
+    setStocks(stocks.filter((_, i) => i !== idx));
+  };
+
+  const updateStock = (idx: number, field: string, value: string) => {
+    const updated = [...stocks];
+    (updated[idx] as any)[field] = value;
+    setStocks(updated);
+  };
+
+  const loadCurrent = () => {
+    if (currentConstituents && currentConstituents.length > 0) {
+      setStocks(currentConstituents.map(c => ({
+        symbol: c.symbol,
+        exchange: c.exchange || "NSE",
+        weightPercent: String(c.weightPercent),
+        quantity: c.quantity ? String(c.quantity) : "",
+        priceAtRebalance: c.priceAtRebalance ? String(c.priceAtRebalance) : "",
+        action: c.action || "Buy",
+      })));
+    }
+  };
+
+  const handleCSVUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    parseBasketFile(
+      file,
+      (parsed) => { setStocks(parsed); toast({ title: `Loaded ${parsed.length} stocks from CSV/Excel` }); },
+      (msg) => { toast({ title: msg, variant: "destructive" }); }
+    );
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const totalWeight = stocks.reduce((sum, c) => sum + Number(c.weightPercent || 0), 0);
+
+  const handleSubmit = () => {
+    const validStocks = stocks.filter(s => s.symbol.trim());
+    if (validStocks.length === 0) {
+      toast({ title: "Add at least one stock", variant: "destructive" });
+      return;
+    }
+    const invalidWeights = validStocks.some(c => !c.weightPercent || isNaN(Number(c.weightPercent)) || Number(c.weightPercent) <= 0);
+    if (invalidWeights) {
+      toast({ title: "All stocks must have a valid weight > 0", variant: "destructive" });
+      return;
+    }
+    if (Math.abs(totalWeight - 100) > 0.5) {
+      toast({ title: "Total weight must equal 100%", description: `Current total: ${totalWeight.toFixed(1)}%`, variant: "destructive" });
+      return;
+    }
+    rebalanceMutation.mutate({
+      constituents: validStocks.map(c => ({
+        symbol: c.symbol,
+        exchange: c.exchange,
+        weightPercent: Number(c.weightPercent),
+        quantity: c.quantity ? Number(c.quantity) : null,
+        priceAtRebalance: c.priceAtRebalance ? Number(c.priceAtRebalance) : null,
+        action: c.action,
+      })),
+      notes: rebalanceNotes || null,
+    });
+  };
+
+  const isUpdate = (rebalances?.length || 0) > 0;
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
+        <SheetHeader>
+          <SheetTitle className="flex items-center gap-2">
+            <Package className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+            {isUpdate ? "Update Basket Stocks" : "Add Basket Stocks"}
+          </SheetTitle>
+        </SheetHeader>
+        <div className="space-y-4 mt-4">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div>
+              <p className="text-sm font-medium">{stocks.length} Stock{stocks.length !== 1 ? "s" : ""}</p>
+              <p className={`text-xs ${Math.abs(totalWeight - 100) <= 0.5 ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400"}`}>
+                Total Weight: {totalWeight.toFixed(1)}%
+                {Math.abs(totalWeight - 100) > 0.5 && " (must equal 100%)"}
+              </p>
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              {currentConstituents && currentConstituents.length > 0 && (
+                <Button size="sm" variant="outline" onClick={loadCurrent} data-testid="button-load-current-basket">
+                  Load Current
+                </Button>
+              )}
+              <Button size="sm" variant="outline" onClick={addStock} data-testid="button-add-basket-stock">
+                <Plus className="w-3 h-3 mr-1" /> Add Stock
+              </Button>
+              <div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv,.txt,.xlsx,.xls"
+                  onChange={handleCSVUpload}
+                  className="hidden"
+                  data-testid="input-csv-upload"
+                />
+                <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()} data-testid="button-upload-csv">
+                  <Upload className="w-3 h-3 mr-1" /> Upload CSV
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <div className="text-xs text-muted-foreground p-2 bg-muted/50 rounded-md">
+            CSV format: Symbol, Exchange, Weight%, Quantity, Price, Action
+          </div>
+
+          <div className="border rounded-md overflow-hidden">
+            <table className="w-full text-sm" data-testid="table-basket-stock-entry">
+              <thead className="bg-indigo-50 dark:bg-indigo-950/30">
+                <tr>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-indigo-700 dark:text-indigo-300">Symbol</th>
+                  <th className="text-left px-2 py-2 text-xs font-medium text-indigo-700 dark:text-indigo-300 w-20">Exch</th>
+                  <th className="text-left px-2 py-2 text-xs font-medium text-indigo-700 dark:text-indigo-300 w-20">Weight%</th>
+                  <th className="text-left px-2 py-2 text-xs font-medium text-indigo-700 dark:text-indigo-300 w-16">Qty</th>
+                  <th className="text-left px-2 py-2 text-xs font-medium text-indigo-700 dark:text-indigo-300 w-24">Price</th>
+                  <th className="text-left px-2 py-2 text-xs font-medium text-indigo-700 dark:text-indigo-300 w-20">Action</th>
+                  <th className="w-8"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {stocks.map((s, idx) => (
+                  <tr key={idx} className="border-t" data-testid={`basket-stock-row-${idx}`}>
+                    <td className="px-2 py-1.5">
+                      <SymbolAutocomplete
+                        value={s.symbol}
+                        onChange={(v) => updateStock(idx, "symbol", v)}
+                        testId={`input-basket-symbol-${idx}`}
+                      />
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <Select value={s.exchange} onValueChange={(v) => updateStock(idx, "exchange", v)}>
+                        <SelectTrigger className="h-8 text-xs" data-testid={`select-basket-exchange-${idx}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="NSE">NSE</SelectItem>
+                          <SelectItem value="BSE">BSE</SelectItem>
+                          <SelectItem value="MCX">MCX</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <Input
+                        type="number"
+                        step="0.1"
+                        value={s.weightPercent}
+                        onChange={(e) => updateStock(idx, "weightPercent", e.target.value)}
+                        className="h-8 text-xs"
+                        placeholder="%"
+                        data-testid={`input-basket-weight-${idx}`}
+                      />
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <Input
+                        type="number"
+                        value={s.quantity}
+                        onChange={(e) => updateStock(idx, "quantity", e.target.value)}
+                        className="h-8 text-xs"
+                        placeholder="Qty"
+                        data-testid={`input-basket-qty-${idx}`}
+                      />
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={s.priceAtRebalance}
+                        onChange={(e) => updateStock(idx, "priceAtRebalance", e.target.value)}
+                        className="h-8 text-xs"
+                        placeholder="₹"
+                        data-testid={`input-basket-price-${idx}`}
+                      />
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <Select value={s.action} onValueChange={(v) => updateStock(idx, "action", v)}>
+                        <SelectTrigger className="h-8 text-xs" data-testid={`select-basket-action-${idx}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Buy">Buy</SelectItem>
+                          <SelectItem value="Sell">Sell</SelectItem>
+                          <SelectItem value="Hold">Hold</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </td>
+                    <td className="px-1 py-1.5">
+                      <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => removeStock(idx)} data-testid={`button-remove-basket-stock-${idx}`}>
+                        <X className="w-3 h-3" />
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Notes (optional)</Label>
+            <Textarea
+              value={rebalanceNotes}
+              onChange={(e) => setRebalanceNotes(e.target.value)}
+              rows={2}
+              placeholder="Why are you making this change?"
+              data-testid="input-basket-notes"
+            />
+          </div>
+
+          <Button
+            className="w-full"
+            onClick={handleSubmit}
+            disabled={rebalanceMutation.isPending || stocks.length === 0 || Math.abs(totalWeight - 100) > 0.5}
+            data-testid="button-submit-basket-stocks"
+          >
+            {rebalanceMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+            {isUpdate ? "Update Basket" : "Create Basket"}
+          </Button>
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
 function BasketBuilderPanel({ strategy }: { strategy: Strategy }) {
   const { toast } = useToast();
+  const csvInputRef = useRef<HTMLInputElement>(null);
   const [showRebalance, setShowRebalance] = useState(false);
   const [showRationale, setShowRationale] = useState(false);
   const [constituents, setConstituents] = useState<{ symbol: string; exchange: string; weightPercent: string; quantity: string; priceAtRebalance: string; action: string }[]>([]);
@@ -2523,6 +2917,17 @@ function BasketBuilderPanel({ strategy }: { strategy: Strategy }) {
       toast({ title: "Rationale removed" });
     },
   });
+
+  const handleBuilderCSVUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    parseBasketFile(
+      file,
+      (parsed) => { setConstituents(parsed); toast({ title: `Loaded ${parsed.length} stocks from CSV/Excel` }); },
+      (msg) => { toast({ title: msg, variant: "destructive" }); }
+    );
+    if (csvInputRef.current) csvInputRef.current.value = "";
+  };
 
   const addConstituent = () => {
     setConstituents([...constituents, { symbol: "", exchange: "NSE", weightPercent: "", quantity: "", priceAtRebalance: "", action: "Buy" }]);
@@ -2736,7 +3141,7 @@ function BasketBuilderPanel({ strategy }: { strategy: Strategy }) {
                   {Math.abs(totalWeight - 100) > 0.5 && " (must equal 100%)"}
                 </p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 {currentConstituents && currentConstituents.length > 0 && (
                   <Button size="sm" variant="outline" onClick={handleLoadCurrent} data-testid="button-load-current">
                     Load Current
@@ -2745,6 +3150,19 @@ function BasketBuilderPanel({ strategy }: { strategy: Strategy }) {
                 <Button size="sm" variant="outline" onClick={addConstituent} data-testid="button-add-stock">
                   <Plus className="w-3 h-3 mr-1" /> Add Stock
                 </Button>
+                <div>
+                  <input
+                    ref={csvInputRef}
+                    type="file"
+                    accept=".csv,.txt,.xlsx,.xls"
+                    onChange={handleBuilderCSVUpload}
+                    className="hidden"
+                    data-testid="input-builder-csv-upload"
+                  />
+                  <Button size="sm" variant="outline" onClick={() => csvInputRef.current?.click()} data-testid="button-builder-upload-csv">
+                    <Upload className="w-3 h-3 mr-1" /> Upload CSV
+                  </Button>
+                </div>
               </div>
             </div>
 

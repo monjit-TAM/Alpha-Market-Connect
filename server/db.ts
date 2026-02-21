@@ -51,6 +51,9 @@ export async function ensureBasketTables() {
         created_at timestamp DEFAULT now()
       );
     `);
+    await client.query(`
+      ALTER TABLE strategies ADD COLUMN IF NOT EXISTS rebalance_frequency text;
+    `);
     console.log("[DB] Basket tables verified/created");
   } catch (err) {
     console.error("[DB] Error ensuring basket tables:", err);

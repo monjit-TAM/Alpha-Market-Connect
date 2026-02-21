@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
-import { TrendingUp, Calendar, BarChart3, Star, Lock, Zap, Shield, Eye, ArrowUp, ArrowDown, Unlock, Package, FileText, RefreshCw } from "lucide-react";
+import { TrendingUp, Calendar, BarChart3, Star, Lock, Zap, Shield, Eye, ArrowUp, ArrowDown, Unlock, Package, FileText, RefreshCw, IndianRupee, CalendarDays, Layers } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   AlertDialog,
@@ -367,15 +367,39 @@ export default function StrategyDetail() {
                 {strategy.minimumInvestment && Number(strategy.minimumInvestment) > 0 && (
                   <div className="p-3 rounded-md bg-muted/50 text-center space-y-1 col-span-2">
                     <p className="text-xs text-muted-foreground">Minimum Investment</p>
-                    <p className="font-medium">{"\u20B9"}{Number(strategy.minimumInvestment).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</p>
+                    <p className="font-medium">{"\u20B9"}{Number(strategy.minimumInvestment).toLocaleString("en-IN", { minimumFractionDigits: 0 })}</p>
+                  </div>
+                )}
+                {isBasket && (strategy as any).rebalanceFrequency && (
+                  <div className="p-3 rounded-md bg-indigo-50 dark:bg-indigo-950/30 text-center space-y-1" data-testid="text-rebalance-frequency">
+                    <p className="text-xs text-muted-foreground">Rebalance Schedule</p>
+                    <p className="font-medium text-indigo-700 dark:text-indigo-300">{(strategy as any).rebalanceFrequency}</p>
+                  </div>
+                )}
+                {isBasket && basketRebalances && basketRebalances.length > 0 && (
+                  <div className="p-3 rounded-md bg-indigo-50 dark:bg-indigo-950/30 text-center space-y-1" data-testid="text-last-rebalance">
+                    <p className="text-xs text-muted-foreground">Last Rebalance</p>
+                    <p className="font-medium text-indigo-700 dark:text-indigo-300 text-xs">
+                      {basketRebalances[0].effectiveDate
+                        ? new Date(basketRebalances[0].effectiveDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+                        : "N/A"}
+                    </p>
+                  </div>
+                )}
+                {isBasket && basketConstituents && (
+                  <div className="p-3 rounded-md bg-indigo-50 dark:bg-indigo-950/30 text-center space-y-1" data-testid="text-basket-stocks-count">
+                    <p className="text-xs text-muted-foreground">Stocks in Basket</p>
+                    <p className="font-medium text-indigo-700 dark:text-indigo-300">{basketConstituents.length}</p>
+                  </div>
+                )}
+                {!isBasket && (
+                  <div className="p-3 rounded-md bg-muted/50 text-center space-y-1">
+                    <p className="text-xs text-muted-foreground">Stocks in Buy Zone</p>
+                    <p className="font-medium">{strategy.stocksInBuyZone || 0}</p>
                   </div>
                 )}
                 <div className="p-3 rounded-md bg-muted/50 text-center space-y-1">
-                  <p className="text-xs text-muted-foreground">Stocks in Buy Zone</p>
-                  <p className="font-medium">{strategy.stocksInBuyZone || 0}</p>
-                </div>
-                <div className="p-3 rounded-md bg-muted/50 text-center space-y-1">
-                  <p className="text-xs text-muted-foreground">Last Recommended</p>
+                  <p className="text-xs text-muted-foreground">{isBasket ? "Last Recommended" : "Last Recommended"}</p>
                   <p className="font-medium text-xs">
                     {strategy.modifiedAt
                       ? new Date(strategy.modifiedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
