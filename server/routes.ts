@@ -7,7 +7,7 @@ import { promisify } from "util";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { sendRegistrationNotification, sendUserWelcomeEmail, sendPasswordResetEmail, sendAdvisorAgreementEmail, sendEsignAgreementEmail } from "./email";
 import { getLiveQuote, getLivePrices, setGrowwAccessToken, getGrowwTokenStatus, getOptionChainExpiries, getOptionChain } from "./groww";
-import type { Plan } from "@shared/schema";
+import type { Plan, BasketRebalance } from "@shared/schema";
 import { esignAgreements } from "@shared/schema";
 import { db } from "./db";
 import { and, eq, desc } from "drizzle-orm";
@@ -1025,6 +1025,17 @@ export async function registerRoutes(
     try {
       const strategy = await storage.getStrategy(req.params.id);
       if (!strategy || strategy.type !== "Basket") return res.status(404).send("Basket strategy not found");
+
+      if (!req.session.userId) return res.status(401).send("Login required");
+      const userId = req.session.userId;
+      const requestUser = await storage.getUser(userId);
+      const isAdvisorOrAdmin = requestUser && (requestUser.role === "advisor" || requestUser.role === "admin");
+      if (!isAdvisorOrAdmin) {
+        const subscriptions = await storage.getSubscriptionsByUser(userId);
+        const isSubscribed = subscriptions.some(s => s.strategyId === req.params.id && s.status === "active");
+        if (!isSubscribed) return res.status(403).send("Subscription required to view current basket composition");
+      }
+
       const rebalanceId = req.query.rebalanceId as string;
       let constituents;
       if (rebalanceId && rebalanceId !== "latest") {
@@ -1033,6 +1044,51 @@ export async function registerRoutes(
         constituents = await storage.getBasketConstituentsByStrategy(req.params.id);
       }
       res.json(constituents);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.get("/api/strategies/:id/basket/past-recommendations", async (req, res) => {
+    try {
+      const strategy = await storage.getStrategy(req.params.id);
+      if (!strategy || strategy.type !== "Basket") return res.status(404).send("Basket strategy not found");
+
+      if (!req.session.userId) return res.status(401).send("Login required to view past recommendations");
+
+      const rebalances = await storage.getBasketRebalances(req.params.id);
+      if (rebalances.length < 2) return res.json([]);
+
+      const latestRebalance = rebalances[0];
+      const currentConstituents = await storage.getBasketConstituents(latestRebalance.id);
+      const currentSymbols = new Set(currentConstituents.map(c => c.symbol));
+
+      const allConstituents = await storage.getAllBasketConstituents(req.params.id);
+
+      const rebalanceMap = new Map<string, BasketRebalance>();
+      for (const r of rebalances) rebalanceMap.set(r.id, r);
+
+      const pastMap = new Map<string, any>();
+      for (const c of allConstituents) {
+        if (currentSymbols.has(c.symbol)) continue;
+        if (c.rebalanceId === latestRebalance.id) continue;
+        if (!pastMap.has(c.symbol)) {
+          const rebalance = rebalanceMap.get(c.rebalanceId);
+          pastMap.set(c.symbol, {
+            symbol: c.symbol,
+            exchange: c.exchange,
+            weightPercent: c.weightPercent,
+            quantity: c.quantity,
+            priceAtRebalance: c.priceAtRebalance,
+            action: c.action,
+            rebalanceVersion: rebalance?.version || null,
+            removedDate: latestRebalance.effectiveDate,
+            addedDate: rebalance?.effectiveDate || null,
+          });
+        }
+      }
+
+      res.json(Array.from(pastMap.values()));
     } catch (err: any) {
       res.status(500).send(err.message);
     }

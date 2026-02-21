@@ -124,6 +124,10 @@ export default function StrategyDetail() {
   });
 
   const isBasket = strategy?.type === "Basket";
+  const isSubscribed = subStatus?.subscribed || false;
+  const isAdvisor = user?.role === "advisor";
+  const isAdmin = user?.role === "admin";
+  const canViewActiveCalls = isSubscribed || isAdvisor || isAdmin;
 
   const { data: basketConstituents } = useQuery<BasketConstituent[]>({
     queryKey: ["/api/strategies", id, "basket", "constituents"],
@@ -132,7 +136,7 @@ export default function StrategyDetail() {
       if (!res.ok) return [];
       return res.json();
     },
-    enabled: !!id && isBasket,
+    enabled: !!id && isBasket && canViewActiveCalls,
   });
 
   const { data: basketRebalances } = useQuery<BasketRebalance[]>({
@@ -155,10 +159,27 @@ export default function StrategyDetail() {
     enabled: !!id && isBasket,
   });
 
-  const isSubscribed = subStatus?.subscribed || false;
-  const isAdvisor = user?.role === "advisor";
-  const isAdmin = user?.role === "admin";
-  const canViewActiveCalls = isSubscribed || isAdvisor || isAdmin;
+  interface PastRecommendation {
+    symbol: string;
+    exchange: string | null;
+    weightPercent: string;
+    quantity: number | null;
+    priceAtRebalance: string | null;
+    action: string | null;
+    rebalanceVersion: number | null;
+    removedDate: string | null;
+    addedDate: string | null;
+  }
+
+  const { data: pastRecommendations } = useQuery<PastRecommendation[]>({
+    queryKey: ["/api/strategies", id, "basket", "past-recommendations"],
+    queryFn: async () => {
+      const res = await fetch(`/api/strategies/${id}/basket/past-recommendations`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!id && isBasket && !!user,
+  });
 
   const activeCallSymbols = (calls || [])
     .filter((c) => c.status === "Active")
@@ -386,7 +407,7 @@ export default function StrategyDetail() {
                     </p>
                   </div>
                 )}
-                {isBasket && basketConstituents && (
+                {isBasket && canViewActiveCalls && basketConstituents && (
                   <div className="p-3 rounded-md bg-indigo-50 dark:bg-indigo-950/30 text-center space-y-1" data-testid="text-basket-stocks-count">
                     <p className="text-xs text-muted-foreground">Stocks in Basket</p>
                     <p className="font-medium text-indigo-700 dark:text-indigo-300">{basketConstituents.length}</p>
@@ -411,60 +432,138 @@ export default function StrategyDetail() {
           </Card>
         </div>
 
-        {isBasket && basketConstituents && basketConstituents.length > 0 && (
+        {isBasket && (
           <Card className="border-indigo-200 dark:border-indigo-800">
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
                 <Package className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-                Basket Composition ({basketConstituents.length} stocks)
+                Current Basket Composition {canViewActiveCalls && basketConstituents ? `(${basketConstituents.length} stocks)` : ""}
               </CardTitle>
             </CardHeader>
             <CardContent>
+              {canViewActiveCalls ? (
+                basketConstituents && basketConstituents.length > 0 ? (
+                  <>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm" data-testid="table-basket-detail-constituents">
+                        <thead>
+                          <tr className="border-b text-left">
+                            <th className="pb-2 font-medium text-indigo-700 dark:text-indigo-300">Stock</th>
+                            <th className="pb-2 font-medium text-indigo-700 dark:text-indigo-300">Exchange</th>
+                            <th className="pb-2 font-medium text-indigo-700 dark:text-indigo-300 text-right">Weight %</th>
+                            <th className="pb-2 font-medium text-indigo-700 dark:text-indigo-300 text-right">Qty</th>
+                            <th className="pb-2 font-medium text-indigo-700 dark:text-indigo-300 text-center">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {basketConstituents.map((c) => (
+                            <tr key={c.id} className="border-b last:border-0" data-testid={`row-basket-constituent-${c.symbol}`}>
+                              <td className="py-2 font-medium">{c.symbol}</td>
+                              <td className="py-2 text-muted-foreground">{c.exchange}</td>
+                              <td className="py-2 text-right font-medium">{Number(c.weightPercent).toFixed(1)}%</td>
+                              <td className="py-2 text-right text-muted-foreground">{c.quantity || "-"}</td>
+                              <td className="py-2 text-center">
+                                <Badge variant={c.action === "Buy" ? "default" : c.action === "Sell" ? "destructive" : "secondary"} className="text-xs">
+                                  {c.action}
+                                </Badge>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {basketRebalances && basketRebalances.length > 0 && (
+                      <div className="mt-4 pt-3 border-t space-y-2">
+                        <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                          <RefreshCw className="w-3 h-3" /> Rebalance History
+                        </p>
+                        {basketRebalances.slice(0, 5).map((r) => (
+                          <div key={r.id} className="flex items-center gap-2 text-xs" data-testid={`rebalance-detail-${r.id}`}>
+                            <Badge variant="outline" className="text-xs">V{r.version}</Badge>
+                            <span className="text-muted-foreground">
+                              {r.effectiveDate ? new Date(r.effectiveDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : ""}
+                            </span>
+                            {r.notes && <span className="text-muted-foreground truncate max-w-[300px]">{r.notes}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-4">No stocks in the basket yet.</p>
+                )
+              ) : (
+                <div className="text-center py-8 space-y-3" data-testid="locked-basket-composition">
+                  <div className="w-16 h-16 rounded-full bg-indigo-50 dark:bg-indigo-950/30 flex items-center justify-center mx-auto">
+                    <Lock className="w-8 h-8 text-indigo-400" />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="font-medium">Subscribe to view current basket stocks</p>
+                    <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                      The current basket composition with stock weights, quantities, and allocations is available to subscribers only.
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-center gap-4 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1"><Package className="w-3 h-3" /> Multi-stock basket</span>
+                    <span className="flex items-center gap-1"><Shield className="w-3 h-3" /> SEBI Registered</span>
+                  </div>
+                  <Button onClick={handleSubscribe} data-testid="button-subscribe-basket">
+                    Subscribe to Unlock
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {isBasket && user && pastRecommendations && pastRecommendations.length > 0 && (
+          <Card data-testid="card-past-recommendations">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <RefreshCw className="w-4 h-4 text-muted-foreground" />
+                Past Recommendations ({pastRecommendations.length})
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">Stocks that were previously in this basket but have been removed during rebalancing</p>
+            </CardHeader>
+            <CardContent>
               <div className="overflow-x-auto">
-                <table className="w-full text-sm" data-testid="table-basket-detail-constituents">
+                <table className="w-full text-sm" data-testid="table-past-recommendations">
                   <thead>
                     <tr className="border-b text-left">
-                      <th className="pb-2 font-medium text-indigo-700 dark:text-indigo-300">Stock</th>
-                      <th className="pb-2 font-medium text-indigo-700 dark:text-indigo-300">Exchange</th>
-                      <th className="pb-2 font-medium text-indigo-700 dark:text-indigo-300 text-right">Weight %</th>
-                      <th className="pb-2 font-medium text-indigo-700 dark:text-indigo-300 text-right">Qty</th>
-                      <th className="pb-2 font-medium text-indigo-700 dark:text-indigo-300 text-center">Action</th>
+                      <th className="pb-2 font-medium">Stock</th>
+                      <th className="pb-2 font-medium">Exchange</th>
+                      <th className="pb-2 font-medium text-right">Weight %</th>
+                      <th className="pb-2 font-medium text-right">Entry Price</th>
+                      <th className="pb-2 font-medium text-center">Action</th>
+                      <th className="pb-2 font-medium text-right">Added</th>
+                      <th className="pb-2 font-medium text-right">Removed</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {basketConstituents.map((c) => (
-                      <tr key={c.id} className="border-b last:border-0" data-testid={`row-basket-constituent-${c.symbol}`}>
-                        <td className="py-2 font-medium">{c.symbol}</td>
-                        <td className="py-2 text-muted-foreground">{c.exchange}</td>
-                        <td className="py-2 text-right font-medium">{Number(c.weightPercent).toFixed(1)}%</td>
-                        <td className="py-2 text-right text-muted-foreground">{c.quantity || "-"}</td>
+                    {pastRecommendations.map((p) => (
+                      <tr key={p.symbol} className="border-b last:border-0" data-testid={`row-past-rec-${p.symbol}`}>
+                        <td className="py-2 font-medium">{p.symbol}</td>
+                        <td className="py-2 text-muted-foreground">{p.exchange || "NSE"}</td>
+                        <td className="py-2 text-right">{Number(p.weightPercent).toFixed(1)}%</td>
+                        <td className="py-2 text-right text-muted-foreground">
+                          {p.priceAtRebalance ? `₹${Number(p.priceAtRebalance).toLocaleString("en-IN")}` : "-"}
+                        </td>
                         <td className="py-2 text-center">
-                          <Badge variant={c.action === "Buy" ? "default" : c.action === "Sell" ? "destructive" : "secondary"} className="text-xs">
-                            {c.action}
+                          <Badge variant={p.action === "Buy" ? "default" : p.action === "Sell" ? "destructive" : "secondary"} className="text-xs">
+                            {p.action || "Buy"}
                           </Badge>
+                        </td>
+                        <td className="py-2 text-right text-xs text-muted-foreground">
+                          {p.addedDate ? new Date(p.addedDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "-"}
+                        </td>
+                        <td className="py-2 text-right text-xs text-muted-foreground">
+                          {p.removedDate ? new Date(p.removedDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "-"}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-
-              {basketRebalances && basketRebalances.length > 0 && (
-                <div className="mt-4 pt-3 border-t space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                    <RefreshCw className="w-3 h-3" /> Rebalance History
-                  </p>
-                  {basketRebalances.slice(0, 5).map((r) => (
-                    <div key={r.id} className="flex items-center gap-2 text-xs" data-testid={`rebalance-detail-${r.id}`}>
-                      <Badge variant="outline" className="text-xs">V{r.version}</Badge>
-                      <span className="text-muted-foreground">
-                        {r.effectiveDate ? new Date(r.effectiveDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : ""}
-                      </span>
-                      {r.notes && <span className="text-muted-foreground truncate max-w-[300px]">{r.notes}</span>}
-                    </div>
-                  ))}
-                </div>
-              )}
             </CardContent>
           </Card>
         )}

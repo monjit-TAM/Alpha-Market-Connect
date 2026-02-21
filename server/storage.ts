@@ -140,6 +140,7 @@ export interface IStorage {
   createBasketConstituents(data: InsertBasketConstituent[]): Promise<BasketConstituent[]>;
   getBasketConstituents(rebalanceId: string): Promise<BasketConstituent[]>;
   getBasketConstituentsByStrategy(strategyId: string): Promise<BasketConstituent[]>;
+  getAllBasketConstituents(strategyId: string): Promise<BasketConstituent[]>;
   deleteBasketConstituentsByRebalance(rebalanceId: string): Promise<void>;
 
   createBasketRationale(data: InsertBasketRationale): Promise<BasketRationale>;
@@ -756,6 +757,12 @@ export class DatabaseStorage implements IStorage {
     const latest = await this.getLatestBasketRebalance(strategyId);
     if (!latest) return [];
     return this.getBasketConstituents(latest.id);
+  }
+
+  async getAllBasketConstituents(strategyId: string): Promise<BasketConstituent[]> {
+    return db.select().from(basketConstituents)
+      .where(eq(basketConstituents.strategyId, strategyId))
+      .orderBy(desc(basketConstituents.createdAt));
   }
 
   async deleteBasketConstituentsByRebalance(rebalanceId: string): Promise<void> {
