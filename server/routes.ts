@@ -1010,6 +1010,174 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/strategies/:id/basket/rebalances", async (req, res) => {
+    try {
+      const strategy = await storage.getStrategy(req.params.id);
+      if (!strategy || strategy.type !== "Basket") return res.status(404).send("Basket strategy not found");
+      const rebalances = await storage.getBasketRebalances(req.params.id);
+      res.json(rebalances);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.get("/api/strategies/:id/basket/constituents", async (req, res) => {
+    try {
+      const strategy = await storage.getStrategy(req.params.id);
+      if (!strategy || strategy.type !== "Basket") return res.status(404).send("Basket strategy not found");
+      const rebalanceId = req.query.rebalanceId as string;
+      let constituents;
+      if (rebalanceId && rebalanceId !== "latest") {
+        constituents = await storage.getBasketConstituents(rebalanceId);
+      } else {
+        constituents = await storage.getBasketConstituentsByStrategy(req.params.id);
+      }
+      res.json(constituents);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.post("/api/strategies/:id/basket/rebalance", requireAdvisor, async (req, res) => {
+    try {
+      const strategy = await storage.getStrategy(req.params.id);
+      if (!strategy) return res.status(404).send("Strategy not found");
+      if (strategy.advisorId !== req.session.userId) return res.status(403).send("Not authorized");
+      if (strategy.type !== "Basket") return res.status(400).send("Strategy is not a Basket type");
+
+      const { constituents, notes } = req.body;
+      if (!constituents || !Array.isArray(constituents) || constituents.length === 0) {
+        return res.status(400).send("At least one constituent is required");
+      }
+
+      const totalWeight = constituents.reduce((sum: number, c: any) => sum + Number(c.weightPercent || 0), 0);
+      if (Math.abs(totalWeight - 100) > 0.5) {
+        return res.status(400).send(`Weights must sum to 100%. Current total: ${totalWeight.toFixed(1)}%`);
+      }
+
+      const existing = await storage.getBasketRebalances(req.params.id);
+      const version = existing.length > 0 ? existing[0].version + 1 : 1;
+
+      const rebalance = await storage.createBasketRebalance({
+        strategyId: req.params.id,
+        version,
+        notes: notes || null,
+        effectiveDate: new Date(),
+      });
+
+      const constituentData = constituents.map((c: any) => ({
+        strategyId: req.params.id,
+        rebalanceId: rebalance.id,
+        symbol: c.symbol,
+        exchange: c.exchange || "NSE",
+        weightPercent: String(c.weightPercent),
+        quantity: c.quantity || null,
+        priceAtRebalance: c.priceAtRebalance ? String(c.priceAtRebalance) : null,
+        action: c.action || "Buy",
+      }));
+
+      const createdConstituents = await storage.createBasketConstituents(constituentData);
+
+      if (version === 1) {
+        await storage.createBasketNavSnapshot({
+          strategyId: req.params.id,
+          asOfDate: new Date(),
+          nav: "100",
+          totalReturn: "0",
+          dailyReturn: "0",
+        });
+      }
+
+      res.json({ rebalance, constituents: createdConstituents });
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.get("/api/strategies/:id/basket/rationales", async (req, res) => {
+    try {
+      const strategy = await storage.getStrategy(req.params.id);
+      if (!strategy || strategy.type !== "Basket") return res.status(404).send("Basket strategy not found");
+      const rationales = await storage.getBasketRationales(req.params.id);
+      res.json(rationales);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.post("/api/strategies/:id/basket/rationale", requireAdvisor, async (req, res) => {
+    try {
+      const strategy = await storage.getStrategy(req.params.id);
+      if (!strategy) return res.status(404).send("Strategy not found");
+      if (strategy.advisorId !== req.session.userId) return res.status(403).send("Not authorized");
+      if (strategy.type !== "Basket") return res.status(400).send("Strategy is not a Basket type");
+
+      const { title, body, category, attachments } = req.body;
+      if (!title || !title.trim()) return res.status(400).send("Title is required");
+
+      const rationale = await storage.createBasketRationale({
+        strategyId: req.params.id,
+        title: title.trim(),
+        body: body || null,
+        category: category || "general",
+        attachments: attachments || null,
+      });
+
+      res.json(rationale);
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.delete("/api/strategies/:id/basket/rationale/:rationaleId", requireAdvisor, async (req, res) => {
+    try {
+      const strategy = await storage.getStrategy(req.params.id);
+      if (!strategy) return res.status(404).send("Strategy not found");
+      if (strategy.advisorId !== req.session.userId) return res.status(403).send("Not authorized");
+      await storage.deleteBasketRationale(req.params.rationaleId);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.get("/api/strategies/:id/basket/performance", async (req, res) => {
+    try {
+      const strategy = await storage.getStrategy(req.params.id);
+      if (!strategy || strategy.type !== "Basket") return res.status(404).send("Basket strategy not found");
+
+      const navSnapshots = await storage.getBasketNavSnapshots(req.params.id);
+      const constituents = await storage.getBasketConstituentsByStrategy(req.params.id);
+      const rebalances = await storage.getBasketRebalances(req.params.id);
+
+      const latestNav = navSnapshots.length > 0 ? navSnapshots[navSnapshots.length - 1] : null;
+
+      res.json({
+        strategyId: req.params.id,
+        currentNav: latestNav ? Number(latestNav.nav) : 100,
+        totalReturn: latestNav ? Number(latestNav.totalReturn || 0) : 0,
+        navHistory: navSnapshots.map((s) => ({
+          date: s.asOfDate,
+          nav: Number(s.nav),
+          totalReturn: Number(s.totalReturn || 0),
+          dailyReturn: Number(s.dailyReturn || 0),
+        })),
+        constituents: constituents.map((c) => ({
+          symbol: c.symbol,
+          exchange: c.exchange,
+          weightPercent: Number(c.weightPercent),
+          quantity: c.quantity,
+          priceAtRebalance: c.priceAtRebalance ? Number(c.priceAtRebalance) : null,
+          action: c.action,
+        })),
+        rebalanceCount: rebalances.length,
+        lastRebalanceDate: rebalances.length > 0 ? rebalances[0].effectiveDate : null,
+      });
+    } catch (err: any) {
+      res.status(500).send(err.message);
+    }
+  });
+
   app.post("/api/strategies/:id/calls", requireAdvisor, async (req, res) => {
     try {
       const validModes = ["draft", "watchlist", "live"];

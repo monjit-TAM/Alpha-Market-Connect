@@ -2,7 +2,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
-import { BarChart3, Calendar, Clock, Zap, Heart } from "lucide-react";
+import { BarChart3, Calendar, Clock, Zap, Heart, Package } from "lucide-react";
 import type { Strategy, User } from "@shared/schema";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
@@ -45,8 +45,19 @@ export function StrategyCard({ strategy, watchlistedIds }: { strategy: StrategyW
     },
   });
 
+  const isBasket = strategy.type === "Basket";
+
   return (
-    <Card className="hover-elevate overflow-visible" data-testid={`card-strategy-${strategy.id}`}>
+    <Card
+      className={`hover-elevate overflow-visible ${isBasket ? "border-indigo-200 dark:border-indigo-800 ring-1 ring-indigo-100 dark:ring-indigo-900/50" : ""}`}
+      data-testid={`card-strategy-${strategy.id}`}
+    >
+      {isBasket && (
+        <div className="bg-gradient-to-r from-indigo-500 to-purple-500 text-white text-xs font-medium px-3 py-1.5 flex items-center gap-1.5 rounded-t-lg" data-testid={`badge-basket-${strategy.id}`}>
+          <Package className="w-3 h-3" />
+          Basket Strategy
+        </div>
+      )}
       <CardContent className="p-5 space-y-3">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
@@ -76,16 +87,21 @@ export function StrategyCard({ strategy, watchlistedIds }: { strategy: StrategyW
           </div>
         </div>
 
-        <div>
+        <div className="flex gap-1.5 flex-wrap">
           <Badge variant="secondary" className={`text-xs ${getRiskColor(strategy.riskLevel)}`}>
             {strategy.riskLevel || "Medium Risk"}
           </Badge>
+          {isBasket && (
+            <Badge variant="secondary" className="text-xs bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800">
+              Multi-Stock
+            </Badge>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
           <div>
             <span className="text-muted-foreground">Strategy Type</span>
-            <p className="font-medium">{strategy.type === "CommodityFuture" ? "Commodity Future" : strategy.type}</p>
+            <p className="font-medium">{isBasket ? "Basket" : strategy.type === "CommodityFuture" ? "Commodity Future" : strategy.type}</p>
           </div>
           <div>
             <span className="text-muted-foreground">Active Since</span>

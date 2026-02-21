@@ -10,13 +10,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, MoreVertical, Loader2, Pencil, ChevronDown, ChevronRight, X, Search, ArrowUp, ArrowDown, Send, Check } from "lucide-react";
+import { Plus, MoreVertical, Loader2, Pencil, ChevronDown, ChevronRight, X, Search, ArrowUp, ArrowDown, Send, Check, Package, RefreshCw, FileText, Trash2 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
-import type { Strategy, Call, Position, Plan } from "@shared/schema";
+import type { Strategy, Call, Position, Plan, BasketRebalance, BasketConstituent, BasketRationale } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
 
 function getCallActionsForType(type: string): { label: string; mode: "stock" | "position" }[] {
@@ -331,7 +331,26 @@ export default function StrategyManagement() {
                   </div>
                   {isExpanded && (
                     <div className="border-t px-4 py-3">
-                      <StrategyCallsPanel strategy={s} />
+                      {s.type === "Basket" ? (
+                        <Tabs defaultValue="basket">
+                          <TabsList>
+                            <TabsTrigger value="basket" data-testid="tab-basket-builder">
+                              <Package className="w-3 h-3 mr-1" /> Basket
+                            </TabsTrigger>
+                            <TabsTrigger value="calls" data-testid="tab-basket-calls">
+                              Calls & Positions
+                            </TabsTrigger>
+                          </TabsList>
+                          <TabsContent value="basket" className="mt-3">
+                            <BasketBuilderPanel strategy={s} />
+                          </TabsContent>
+                          <TabsContent value="calls" className="mt-3">
+                            <StrategyCallsPanel strategy={s} />
+                          </TabsContent>
+                        </Tabs>
+                      ) : (
+                        <StrategyCallsPanel strategy={s} />
+                      )}
                     </div>
                   )}
                 </CardContent>
@@ -2412,5 +2431,464 @@ function AddPositionSheet({
         </form>
       </SheetContent>
     </Sheet>
+  );
+}
+
+function BasketBuilderPanel({ strategy }: { strategy: Strategy }) {
+  const { toast } = useToast();
+  const [showRebalance, setShowRebalance] = useState(false);
+  const [showRationale, setShowRationale] = useState(false);
+  const [constituents, setConstituents] = useState<{ symbol: string; exchange: string; weightPercent: string; quantity: string; priceAtRebalance: string; action: string }[]>([]);
+  const [rebalanceNotes, setRebalanceNotes] = useState("");
+  const [rationaleTitle, setRationaleTitle] = useState("");
+  const [rationaleBody, setRationaleBody] = useState("");
+  const [rationaleCategory, setRationaleCategory] = useState("general");
+
+  const { data: rebalances, isLoading: rebalancesLoading } = useQuery<BasketRebalance[]>({
+    queryKey: ["/api/strategies", strategy.id, "basket", "rebalances"],
+    queryFn: async () => {
+      const res = await fetch(`/api/strategies/${strategy.id}/basket/rebalances`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  const { data: currentConstituents } = useQuery<BasketConstituent[]>({
+    queryKey: ["/api/strategies", strategy.id, "basket", "constituents"],
+    queryFn: async () => {
+      const res = await fetch(`/api/strategies/${strategy.id}/basket/constituents`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  const { data: rationales } = useQuery<BasketRationale[]>({
+    queryKey: ["/api/strategies", strategy.id, "basket", "rationales"],
+    queryFn: async () => {
+      const res = await fetch(`/api/strategies/${strategy.id}/basket/rationales`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  const rebalanceMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", `/api/strategies/${strategy.id}/basket/rebalance`, data);
+      if (!res.ok) {
+        const msg = await res.text();
+        throw new Error(msg);
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/strategies", strategy.id, "basket", "rebalances"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/strategies", strategy.id, "basket", "constituents"] });
+      setShowRebalance(false);
+      setConstituents([]);
+      setRebalanceNotes("");
+      toast({ title: "Basket rebalanced successfully" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const rationaleMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", `/api/strategies/${strategy.id}/basket/rationale`, data);
+      if (!res.ok) {
+        const msg = await res.text();
+        throw new Error(msg);
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/strategies", strategy.id, "basket", "rationales"] });
+      setShowRationale(false);
+      setRationaleTitle("");
+      setRationaleBody("");
+      toast({ title: "Rationale added" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const deleteRationaleMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/strategies/${strategy.id}/basket/rationale/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/strategies", strategy.id, "basket", "rationales"] });
+      toast({ title: "Rationale removed" });
+    },
+  });
+
+  const addConstituent = () => {
+    setConstituents([...constituents, { symbol: "", exchange: "NSE", weightPercent: "", quantity: "", priceAtRebalance: "", action: "Buy" }]);
+  };
+
+  const removeConstituent = (index: number) => {
+    setConstituents(constituents.filter((_, i) => i !== index));
+  };
+
+  const updateConstituent = (index: number, field: string, value: string) => {
+    const updated = [...constituents];
+    (updated[index] as any)[field] = value;
+    setConstituents(updated);
+  };
+
+  const totalWeight = constituents.reduce((sum, c) => sum + Number(c.weightPercent || 0), 0);
+
+  const handleLoadCurrent = () => {
+    if (currentConstituents && currentConstituents.length > 0) {
+      setConstituents(currentConstituents.map(c => ({
+        symbol: c.symbol,
+        exchange: c.exchange || "NSE",
+        weightPercent: String(c.weightPercent),
+        quantity: c.quantity ? String(c.quantity) : "",
+        priceAtRebalance: c.priceAtRebalance ? String(c.priceAtRebalance) : "",
+        action: c.action || "Buy",
+      })));
+    }
+  };
+
+  const handleSubmitRebalance = () => {
+    if (constituents.length === 0) {
+      toast({ title: "Add at least one stock", variant: "destructive" });
+      return;
+    }
+    const emptySymbols = constituents.some(c => !c.symbol.trim());
+    if (emptySymbols) {
+      toast({ title: "All stocks must have a symbol", variant: "destructive" });
+      return;
+    }
+    const invalidWeights = constituents.some(c => !c.weightPercent || isNaN(Number(c.weightPercent)) || Number(c.weightPercent) <= 0);
+    if (invalidWeights) {
+      toast({ title: "All stocks must have a valid weight greater than 0", variant: "destructive" });
+      return;
+    }
+    if (Math.abs(totalWeight - 100) > 0.5) {
+      toast({ title: "Total weight must equal 100%", description: `Current total: ${totalWeight.toFixed(1)}%. Adjust weights before submitting.`, variant: "destructive" });
+      return;
+    }
+    rebalanceMutation.mutate({
+      constituents: constituents.map(c => ({
+        symbol: c.symbol,
+        exchange: c.exchange,
+        weightPercent: Number(c.weightPercent),
+        quantity: c.quantity ? Number(c.quantity) : null,
+        priceAtRebalance: c.priceAtRebalance ? Number(c.priceAtRebalance) : null,
+        action: c.action,
+      })),
+      notes: rebalanceNotes || null,
+    });
+  };
+
+  if (rebalancesLoading) {
+    return <Skeleton className="h-20 w-full" />;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div>
+          <h4 className="text-sm font-semibold flex items-center gap-1.5">
+            <Package className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+            Basket Composition
+          </h4>
+          <p className="text-xs text-muted-foreground">
+            {currentConstituents?.length || 0} stocks | {rebalances?.length || 0} rebalance{(rebalances?.length || 0) !== 1 ? "s" : ""}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setShowRationale(true)}
+            data-testid="button-add-rationale"
+          >
+            <FileText className="w-3 h-3 mr-1" /> Add Rationale
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => {
+              setShowRebalance(true);
+              if (currentConstituents && currentConstituents.length > 0 && constituents.length === 0) {
+                handleLoadCurrent();
+              } else if (constituents.length === 0) {
+                addConstituent();
+              }
+            }}
+            data-testid="button-rebalance"
+          >
+            <RefreshCw className="w-3 h-3 mr-1" /> {rebalances?.length ? "Rebalance" : "Create Basket"}
+          </Button>
+        </div>
+      </div>
+
+      {currentConstituents && currentConstituents.length > 0 && (
+        <div className="border rounded-md overflow-hidden">
+          <table className="w-full text-sm" data-testid="table-basket-constituents">
+            <thead className="bg-indigo-50 dark:bg-indigo-950/30">
+              <tr>
+                <th className="text-left px-3 py-2 text-xs font-medium text-indigo-700 dark:text-indigo-300">Stock</th>
+                <th className="text-left px-3 py-2 text-xs font-medium text-indigo-700 dark:text-indigo-300">Exchange</th>
+                <th className="text-right px-3 py-2 text-xs font-medium text-indigo-700 dark:text-indigo-300">Weight %</th>
+                <th className="text-right px-3 py-2 text-xs font-medium text-indigo-700 dark:text-indigo-300">Qty</th>
+                <th className="text-right px-3 py-2 text-xs font-medium text-indigo-700 dark:text-indigo-300">Price</th>
+                <th className="text-center px-3 py-2 text-xs font-medium text-indigo-700 dark:text-indigo-300">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {currentConstituents.map((c) => (
+                <tr key={c.id} className="border-t" data-testid={`row-constituent-${c.symbol}`}>
+                  <td className="px-3 py-2 font-medium">{c.symbol}</td>
+                  <td className="px-3 py-2 text-muted-foreground">{c.exchange}</td>
+                  <td className="px-3 py-2 text-right">{Number(c.weightPercent).toFixed(1)}%</td>
+                  <td className="px-3 py-2 text-right text-muted-foreground">{c.quantity || "-"}</td>
+                  <td className="px-3 py-2 text-right text-muted-foreground">{c.priceAtRebalance ? `₹${Number(c.priceAtRebalance).toFixed(2)}` : "-"}</td>
+                  <td className="px-3 py-2 text-center">
+                    <Badge variant={c.action === "Buy" ? "default" : "secondary"} className="text-xs">
+                      {c.action}
+                    </Badge>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {(!currentConstituents || currentConstituents.length === 0) && !showRebalance && (
+        <div className="text-center py-6 border rounded-md bg-indigo-50/50 dark:bg-indigo-950/20">
+          <Package className="w-8 h-8 text-indigo-400 mx-auto mb-2" />
+          <p className="text-sm text-muted-foreground">No basket composition yet.</p>
+          <p className="text-xs text-muted-foreground">Click "Create Basket" to add stocks with their weights.</p>
+        </div>
+      )}
+
+      {rebalances && rebalances.length > 0 && (
+        <div className="space-y-2">
+          <h5 className="text-xs font-medium text-muted-foreground">Rebalance History</h5>
+          {rebalances.map((r) => (
+            <div key={r.id} className="flex items-center gap-2 text-xs p-2 rounded border" data-testid={`rebalance-${r.id}`}>
+              <Badge variant="outline" className="text-xs">V{r.version}</Badge>
+              <span className="text-muted-foreground">
+                {r.effectiveDate ? new Date(r.effectiveDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : ""}
+              </span>
+              {r.notes && <span className="text-muted-foreground truncate max-w-[200px]">— {r.notes}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {rationales && rationales.length > 0 && (
+        <div className="space-y-2">
+          <h5 className="text-xs font-medium text-muted-foreground">Recommendation Rationale</h5>
+          {rationales.map((r) => (
+            <div key={r.id} className="p-3 border rounded-md space-y-1" data-testid={`rationale-${r.id}`}>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <FileText className="w-3 h-3 text-indigo-500" />
+                  <span className="text-sm font-medium">{r.title}</span>
+                  <Badge variant="secondary" className="text-xs">{r.category}</Badge>
+                </div>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-6 w-6"
+                  onClick={() => deleteRationaleMutation.mutate(r.id)}
+                  data-testid={`button-delete-rationale-${r.id}`}
+                >
+                  <Trash2 className="w-3 h-3 text-destructive" />
+                </Button>
+              </div>
+              {r.body && <p className="text-xs text-muted-foreground">{r.body}</p>}
+              {r.attachments && r.attachments.length > 0 && (
+                <div className="flex gap-2 flex-wrap">
+                  {r.attachments.map((url, idx) => (
+                    <a key={idx} href={url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary underline">
+                      Attachment {idx + 1}
+                    </a>
+                  ))}
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                {r.createdAt ? new Date(r.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : ""}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Sheet open={showRebalance} onOpenChange={setShowRebalance}>
+        <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>{rebalances?.length ? "Rebalance Basket" : "Create Basket Composition"}</SheetTitle>
+          </SheetHeader>
+          <div className="space-y-4 mt-4">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-medium">Stocks ({constituents.length})</p>
+                <p className={`text-xs ${Math.abs(totalWeight - 100) <= 0.5 ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400"}`}>
+                  Total Weight: {totalWeight.toFixed(1)}%
+                  {Math.abs(totalWeight - 100) > 0.5 && " (must equal 100%)"}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                {currentConstituents && currentConstituents.length > 0 && (
+                  <Button size="sm" variant="outline" onClick={handleLoadCurrent} data-testid="button-load-current">
+                    Load Current
+                  </Button>
+                )}
+                <Button size="sm" variant="outline" onClick={addConstituent} data-testid="button-add-stock">
+                  <Plus className="w-3 h-3 mr-1" /> Add Stock
+                </Button>
+              </div>
+            </div>
+
+            {constituents.map((c, idx) => (
+              <div key={idx} className="border rounded-md p-3 space-y-2" data-testid={`constituent-form-${idx}`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-muted-foreground">Stock #{idx + 1}</span>
+                  <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => removeConstituent(idx)} data-testid={`button-remove-stock-${idx}`}>
+                    <X className="w-3 h-3" />
+                  </Button>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="col-span-2">
+                    <SymbolAutocomplete
+                      value={c.symbol}
+                      onChange={(val) => updateConstituent(idx, "symbol", val)}
+                      testId={`input-constituent-symbol-${idx}`}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Weight %</Label>
+                    <Input
+                      type="number"
+                      step="0.1"
+                      value={c.weightPercent}
+                      onChange={(e) => updateConstituent(idx, "weightPercent", e.target.value)}
+                      placeholder="e.g. 20"
+                      data-testid={`input-weight-${idx}`}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Action</Label>
+                    <Select value={c.action} onValueChange={(v) => updateConstituent(idx, "action", v)}>
+                      <SelectTrigger data-testid={`select-action-${idx}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Buy">Buy</SelectItem>
+                        <SelectItem value="Sell">Sell</SelectItem>
+                        <SelectItem value="Hold">Hold</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Quantity (optional)</Label>
+                    <Input
+                      type="number"
+                      value={c.quantity}
+                      onChange={(e) => updateConstituent(idx, "quantity", e.target.value)}
+                      placeholder="Shares"
+                      data-testid={`input-quantity-${idx}`}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Price at Entry (optional)</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={c.priceAtRebalance}
+                      onChange={(e) => updateConstituent(idx, "priceAtRebalance", e.target.value)}
+                      placeholder="₹"
+                      data-testid={`input-price-${idx}`}
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            <div className="space-y-1.5">
+              <Label>Rebalance Notes (optional)</Label>
+              <Textarea
+                value={rebalanceNotes}
+                onChange={(e) => setRebalanceNotes(e.target.value)}
+                rows={2}
+                placeholder="Why are you making this change?"
+                data-testid="input-rebalance-notes"
+              />
+            </div>
+
+            <Button
+              className="w-full"
+              onClick={handleSubmitRebalance}
+              disabled={rebalanceMutation.isPending || constituents.length === 0 || Math.abs(totalWeight - 100) > 0.5}
+              data-testid="button-submit-rebalance"
+            >
+              {rebalanceMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+              {rebalances?.length ? "Submit Rebalance" : "Create Basket"}
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Dialog open={showRationale} onOpenChange={setShowRationale}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Recommendation Rationale</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Title</Label>
+              <Input
+                value={rationaleTitle}
+                onChange={(e) => setRationaleTitle(e.target.value)}
+                placeholder="e.g. Q3 Portfolio Rebalance Report"
+                data-testid="input-rationale-title"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Category</Label>
+              <Select value={rationaleCategory} onValueChange={setRationaleCategory}>
+                <SelectTrigger data-testid="select-rationale-category">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="general">General</SelectItem>
+                  <SelectItem value="research">Research Report</SelectItem>
+                  <SelectItem value="quarterly">Quarterly Review</SelectItem>
+                  <SelectItem value="rebalance">Rebalance Rationale</SelectItem>
+                  <SelectItem value="market_outlook">Market Outlook</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Description</Label>
+              <Textarea
+                value={rationaleBody}
+                onChange={(e) => setRationaleBody(e.target.value)}
+                rows={4}
+                placeholder="Detailed rationale for your basket recommendation..."
+                data-testid="input-rationale-body"
+              />
+            </div>
+            <Button
+              className="w-full"
+              onClick={() => rationaleMutation.mutate({ title: rationaleTitle, body: rationaleBody, category: rationaleCategory })}
+              disabled={rationaleMutation.isPending || !rationaleTitle.trim()}
+              data-testid="button-submit-rationale"
+            >
+              {rationaleMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+              Add Rationale
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }

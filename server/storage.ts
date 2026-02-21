@@ -3,6 +3,7 @@ import { eq, and, desc, sql } from "drizzle-orm";
 import {
   users, strategies, calls, positions, plans, subscriptions, content, scores, passwordResetTokens, payments,
   watchlist, advisorQuestions, riskProfiles, ekycVerifications, pushSubscriptions, notifications, esignAgreements,
+  basketRebalances, basketConstituents, basketRationales, basketNavSnapshots,
   type User, type InsertUser,
   type Strategy, type InsertStrategy,
   type Call, type InsertCall,
@@ -19,6 +20,10 @@ import {
   type PushSubscription, type InsertPushSubscription,
   type Notification, type InsertNotification,
   type EsignAgreement, type InsertEsignAgreement,
+  type BasketRebalance, type InsertBasketRebalance,
+  type BasketConstituent, type InsertBasketConstituent,
+  type BasketRationale, type InsertBasketRationale,
+  type BasketNavSnapshot, type InsertBasketNavSnapshot,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -125,6 +130,24 @@ export interface IStorage {
   getEsignAgreementByUserAndStrategy(userId: string, strategyId: string, planId: string): Promise<EsignAgreement | undefined>;
   getEsignAgreementBySubscription(subscriptionId: string): Promise<EsignAgreement | undefined>;
   getEsignAgreementsByAdvisor(advisorId: string): Promise<EsignAgreement[]>;
+
+  createBasketRebalance(data: InsertBasketRebalance): Promise<BasketRebalance>;
+  getBasketRebalances(strategyId: string): Promise<BasketRebalance[]>;
+  getLatestBasketRebalance(strategyId: string): Promise<BasketRebalance | undefined>;
+  getBasketRebalance(id: string): Promise<BasketRebalance | undefined>;
+
+  createBasketConstituent(data: InsertBasketConstituent): Promise<BasketConstituent>;
+  createBasketConstituents(data: InsertBasketConstituent[]): Promise<BasketConstituent[]>;
+  getBasketConstituents(rebalanceId: string): Promise<BasketConstituent[]>;
+  getBasketConstituentsByStrategy(strategyId: string): Promise<BasketConstituent[]>;
+  deleteBasketConstituentsByRebalance(rebalanceId: string): Promise<void>;
+
+  createBasketRationale(data: InsertBasketRationale): Promise<BasketRationale>;
+  getBasketRationales(strategyId: string): Promise<BasketRationale[]>;
+  deleteBasketRationale(id: string): Promise<void>;
+
+  createBasketNavSnapshot(data: InsertBasketNavSnapshot): Promise<BasketNavSnapshot>;
+  getBasketNavSnapshots(strategyId: string): Promise<BasketNavSnapshot[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -687,6 +710,82 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(esignAgreements)
       .where(eq(esignAgreements.advisorId, advisorId))
       .orderBy(desc(esignAgreements.createdAt));
+  }
+
+  async createBasketRebalance(data: InsertBasketRebalance): Promise<BasketRebalance> {
+    const [r] = await db.insert(basketRebalances).values(data).returning();
+    return r;
+  }
+
+  async getBasketRebalances(strategyId: string): Promise<BasketRebalance[]> {
+    return db.select().from(basketRebalances)
+      .where(eq(basketRebalances.strategyId, strategyId))
+      .orderBy(desc(basketRebalances.version));
+  }
+
+  async getLatestBasketRebalance(strategyId: string): Promise<BasketRebalance | undefined> {
+    const [r] = await db.select().from(basketRebalances)
+      .where(eq(basketRebalances.strategyId, strategyId))
+      .orderBy(desc(basketRebalances.version))
+      .limit(1);
+    return r;
+  }
+
+  async getBasketRebalance(id: string): Promise<BasketRebalance | undefined> {
+    const [r] = await db.select().from(basketRebalances).where(eq(basketRebalances.id, id));
+    return r;
+  }
+
+  async createBasketConstituent(data: InsertBasketConstituent): Promise<BasketConstituent> {
+    const [c] = await db.insert(basketConstituents).values(data).returning();
+    return c;
+  }
+
+  async createBasketConstituents(data: InsertBasketConstituent[]): Promise<BasketConstituent[]> {
+    if (data.length === 0) return [];
+    return db.insert(basketConstituents).values(data).returning();
+  }
+
+  async getBasketConstituents(rebalanceId: string): Promise<BasketConstituent[]> {
+    return db.select().from(basketConstituents)
+      .where(eq(basketConstituents.rebalanceId, rebalanceId))
+      .orderBy(desc(basketConstituents.weightPercent));
+  }
+
+  async getBasketConstituentsByStrategy(strategyId: string): Promise<BasketConstituent[]> {
+    const latest = await this.getLatestBasketRebalance(strategyId);
+    if (!latest) return [];
+    return this.getBasketConstituents(latest.id);
+  }
+
+  async deleteBasketConstituentsByRebalance(rebalanceId: string): Promise<void> {
+    await db.delete(basketConstituents).where(eq(basketConstituents.rebalanceId, rebalanceId));
+  }
+
+  async createBasketRationale(data: InsertBasketRationale): Promise<BasketRationale> {
+    const [r] = await db.insert(basketRationales).values(data).returning();
+    return r;
+  }
+
+  async getBasketRationales(strategyId: string): Promise<BasketRationale[]> {
+    return db.select().from(basketRationales)
+      .where(eq(basketRationales.strategyId, strategyId))
+      .orderBy(desc(basketRationales.createdAt));
+  }
+
+  async deleteBasketRationale(id: string): Promise<void> {
+    await db.delete(basketRationales).where(eq(basketRationales.id, id));
+  }
+
+  async createBasketNavSnapshot(data: InsertBasketNavSnapshot): Promise<BasketNavSnapshot> {
+    const [s] = await db.insert(basketNavSnapshots).values(data).returning();
+    return s;
+  }
+
+  async getBasketNavSnapshots(strategyId: string): Promise<BasketNavSnapshot[]> {
+    return db.select().from(basketNavSnapshots)
+      .where(eq(basketNavSnapshots.strategyId, strategyId))
+      .orderBy(basketNavSnapshots.asOfDate);
   }
 }
 

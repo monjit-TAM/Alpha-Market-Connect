@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
-import { TrendingUp, Calendar, BarChart3, Star, Lock, Zap, Shield, Eye, ArrowUp, ArrowDown, Unlock } from "lucide-react";
+import { TrendingUp, Calendar, BarChart3, Star, Lock, Zap, Shield, Eye, ArrowUp, ArrowDown, Unlock, Package, FileText, RefreshCw } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   AlertDialog,
@@ -19,7 +19,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import type { Strategy, Call, User, Position } from "@shared/schema";
+import type { Strategy, Call, User, Position, BasketConstituent, BasketRebalance, BasketRationale } from "@shared/schema";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -123,6 +123,38 @@ export default function StrategyDetail() {
     enabled: !!id && !!user,
   });
 
+  const isBasket = strategy?.type === "Basket";
+
+  const { data: basketConstituents } = useQuery<BasketConstituent[]>({
+    queryKey: ["/api/strategies", id, "basket", "constituents"],
+    queryFn: async () => {
+      const res = await fetch(`/api/strategies/${id}/basket/constituents`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!id && isBasket,
+  });
+
+  const { data: basketRebalances } = useQuery<BasketRebalance[]>({
+    queryKey: ["/api/strategies", id, "basket", "rebalances"],
+    queryFn: async () => {
+      const res = await fetch(`/api/strategies/${id}/basket/rebalances`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!id && isBasket,
+  });
+
+  const { data: basketRationales } = useQuery<BasketRationale[]>({
+    queryKey: ["/api/strategies", id, "basket", "rationales"],
+    queryFn: async () => {
+      const res = await fetch(`/api/strategies/${id}/basket/rationales`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!id && isBasket,
+  });
+
   const isSubscribed = subStatus?.subscribed || false;
   const isAdvisor = user?.role === "advisor";
   const isAdmin = user?.role === "admin";
@@ -215,7 +247,10 @@ export default function StrategyDetail() {
               <Badge variant="secondary" className={getRiskColor(strategy.riskLevel)}>
                 {strategy.riskLevel || "Medium Risk"}
               </Badge>
-              <Badge variant="outline">{strategy.type === "CommodityFuture" ? "Commodity Future" : strategy.type}</Badge>
+              <Badge variant="outline" className={strategy.type === "Basket" ? "bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800" : ""}>
+                {strategy.type === "Basket" && <Package className="w-3 h-3 mr-1" />}
+                {strategy.type === "CommodityFuture" ? "Commodity Future" : strategy.type}
+              </Badge>
               {strategy.horizon && <Badge variant="outline">{strategy.horizon}</Badge>}
             </div>
           </div>
@@ -351,6 +386,98 @@ export default function StrategyDetail() {
             </CardContent>
           </Card>
         </div>
+
+        {isBasket && basketConstituents && basketConstituents.length > 0 && (
+          <Card className="border-indigo-200 dark:border-indigo-800">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Package className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                Basket Composition ({basketConstituents.length} stocks)
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm" data-testid="table-basket-detail-constituents">
+                  <thead>
+                    <tr className="border-b text-left">
+                      <th className="pb-2 font-medium text-indigo-700 dark:text-indigo-300">Stock</th>
+                      <th className="pb-2 font-medium text-indigo-700 dark:text-indigo-300">Exchange</th>
+                      <th className="pb-2 font-medium text-indigo-700 dark:text-indigo-300 text-right">Weight %</th>
+                      <th className="pb-2 font-medium text-indigo-700 dark:text-indigo-300 text-right">Qty</th>
+                      <th className="pb-2 font-medium text-indigo-700 dark:text-indigo-300 text-center">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {basketConstituents.map((c) => (
+                      <tr key={c.id} className="border-b last:border-0" data-testid={`row-basket-constituent-${c.symbol}`}>
+                        <td className="py-2 font-medium">{c.symbol}</td>
+                        <td className="py-2 text-muted-foreground">{c.exchange}</td>
+                        <td className="py-2 text-right font-medium">{Number(c.weightPercent).toFixed(1)}%</td>
+                        <td className="py-2 text-right text-muted-foreground">{c.quantity || "-"}</td>
+                        <td className="py-2 text-center">
+                          <Badge variant={c.action === "Buy" ? "default" : c.action === "Sell" ? "destructive" : "secondary"} className="text-xs">
+                            {c.action}
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {basketRebalances && basketRebalances.length > 0 && (
+                <div className="mt-4 pt-3 border-t space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                    <RefreshCw className="w-3 h-3" /> Rebalance History
+                  </p>
+                  {basketRebalances.slice(0, 5).map((r) => (
+                    <div key={r.id} className="flex items-center gap-2 text-xs" data-testid={`rebalance-detail-${r.id}`}>
+                      <Badge variant="outline" className="text-xs">V{r.version}</Badge>
+                      <span className="text-muted-foreground">
+                        {r.effectiveDate ? new Date(r.effectiveDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : ""}
+                      </span>
+                      {r.notes && <span className="text-muted-foreground truncate max-w-[300px]">{r.notes}</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {isBasket && basketRationales && basketRationales.length > 0 && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <FileText className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                Advisor Research & Rationale
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {basketRationales.map((r) => (
+                <div key={r.id} className="p-3 border rounded-md" data-testid={`rationale-detail-${r.id}`}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-sm font-medium">{r.title}</span>
+                    <Badge variant="secondary" className="text-xs">{r.category}</Badge>
+                    <span className="text-xs text-muted-foreground ml-auto">
+                      {r.createdAt ? new Date(r.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : ""}
+                    </span>
+                  </div>
+                  {r.body && <p className="text-sm text-muted-foreground">{r.body}</p>}
+                  {r.attachments && r.attachments.length > 0 && (
+                    <div className="flex gap-2 flex-wrap mt-2">
+                      {r.attachments.map((url, idx) => (
+                        <a key={idx} href={url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary underline">
+                          Attachment {idx + 1}
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader className="pb-3">

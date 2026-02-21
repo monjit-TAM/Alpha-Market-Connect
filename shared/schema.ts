@@ -367,6 +367,62 @@ export const insertEsignAgreementSchema = createInsertSchema(esignAgreements).om
 export type EsignAgreement = typeof esignAgreements.$inferSelect;
 export type InsertEsignAgreement = z.infer<typeof insertEsignAgreementSchema>;
 
+export const basketRebalances = pgTable("basket_rebalances", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  strategyId: varchar("strategy_id").notNull().references(() => strategies.id),
+  version: integer("version").notNull().default(1),
+  effectiveDate: timestamp("effective_date").defaultNow(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const basketConstituents = pgTable("basket_constituents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  strategyId: varchar("strategy_id").notNull().references(() => strategies.id),
+  rebalanceId: varchar("rebalance_id").notNull().references(() => basketRebalances.id),
+  symbol: text("symbol").notNull(),
+  exchange: text("exchange").default("NSE"),
+  weightPercent: numeric("weight_percent").notNull(),
+  quantity: integer("quantity"),
+  priceAtRebalance: numeric("price_at_rebalance"),
+  action: text("action").default("Buy"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const basketRationales = pgTable("basket_rationales", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  strategyId: varchar("strategy_id").notNull().references(() => strategies.id),
+  title: text("title").notNull(),
+  body: text("body"),
+  category: text("category").default("general"),
+  attachments: text("attachments").array(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const basketNavSnapshots = pgTable("basket_nav_snapshots", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  strategyId: varchar("strategy_id").notNull().references(() => strategies.id),
+  asOfDate: timestamp("as_of_date").notNull(),
+  nav: numeric("nav").notNull(),
+  totalReturn: numeric("total_return"),
+  dailyReturn: numeric("daily_return"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertBasketRebalanceSchema = createInsertSchema(basketRebalances).omit({ id: true, createdAt: true });
+export const insertBasketConstituentSchema = createInsertSchema(basketConstituents).omit({ id: true, createdAt: true });
+export const insertBasketRationaleSchema = createInsertSchema(basketRationales).omit({ id: true, createdAt: true });
+export const insertBasketNavSnapshotSchema = createInsertSchema(basketNavSnapshots).omit({ id: true, createdAt: true });
+
+export type BasketRebalance = typeof basketRebalances.$inferSelect;
+export type InsertBasketRebalance = z.infer<typeof insertBasketRebalanceSchema>;
+export type BasketConstituent = typeof basketConstituents.$inferSelect;
+export type InsertBasketConstituent = z.infer<typeof insertBasketConstituentSchema>;
+export type BasketRationale = typeof basketRationales.$inferSelect;
+export type InsertBasketRationale = z.infer<typeof insertBasketRationaleSchema>;
+export type BasketNavSnapshot = typeof basketNavSnapshots.$inferSelect;
+export type InsertBasketNavSnapshot = z.infer<typeof insertBasketNavSnapshotSchema>;
+
 export const appSettings = pgTable("app_settings", {
   key: varchar("key").primaryKey(),
   value: text("value"),
