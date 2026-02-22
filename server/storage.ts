@@ -120,6 +120,7 @@ export interface IStorage {
   getPushSubscriptionsByUser(userId: string): Promise<PushSubscription[]>;
   getAllPushSubscriptions(): Promise<PushSubscription[]>;
   getActiveSubscriptionsByStrategy(strategyId: string): Promise<Subscription[]>;
+  getWatchlistUserIdsForStrategy(strategyId: string, excludeSubscriberIds: string[]): Promise<string[]>;
   getPushSubscriptionsForUserIds(userIds: string[]): Promise<PushSubscription[]>;
   createNotification(data: InsertNotification): Promise<Notification>;
   getRecentNotifications(limit?: number): Promise<Notification[]>;
@@ -620,6 +621,14 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(subscriptions).where(
       and(eq(subscriptions.strategyId, strategyId), eq(subscriptions.status, "active"))
     );
+  }
+
+  async getWatchlistUserIdsForStrategy(strategyId: string, excludeSubscriberIds: string[]): Promise<string[]> {
+    const rows = await db.select({ userId: watchlist.userId }).from(watchlist).where(
+      and(eq(watchlist.itemType, "strategy"), eq(watchlist.itemId, strategyId))
+    );
+    const excludeSet = new Set(excludeSubscriberIds);
+    return Array.from(new Set(rows.map(r => r.userId).filter(uid => !excludeSet.has(uid))));
   }
 
   async getPushSubscriptionsForUserIds(userIds: string[]): Promise<PushSubscription[]> {

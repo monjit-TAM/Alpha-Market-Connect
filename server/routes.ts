@@ -13,7 +13,16 @@ import { db } from "./db";
 import { and, eq, desc } from "drizzle-orm";
 import nseSymbols from "./data/nse-symbols.json";
 import { createCashfreeOrder, fetchCashfreeOrder, fetchCashfreePayments, verifyCashfreeWebhook } from "./cashfree";
-import { notifyStrategySubscribers, notifyAllUsers, notifyAllVisitors, vapidPublicKey, pushEnabled } from "./push";
+import {
+  notifyStrategySubscribers, notifyWatchlistUsers, notifyAllUsers, notifyAllVisitors,
+  vapidPublicKey, pushEnabled,
+  buildNewCallSubscriberNotification, buildNewCallWatchlistNotification,
+  buildCallClosedSubscriberNotification, buildCallClosedWatchlistNotification,
+  buildCallUpdateSubscriberNotification,
+  buildNewPositionSubscriberNotification, buildNewPositionWatchlistNotification,
+  buildPositionClosedSubscriberNotification, buildPositionClosedWatchlistNotification,
+  buildPositionUpdateSubscriberNotification,
+} from "./push";
 import { sendAadhaarOtp, verifyAadhaarOtp, verifyPan, isSandboxConfigured } from "./sandbox-kyc";
 
 const scryptAsync = promisify(scrypt);
@@ -1254,13 +1263,10 @@ export async function registerRoutes(
       if (isPublished) {
         const strategy = await storage.getStrategy(req.params.id);
         if (strategy) {
-          notifyStrategySubscribers(req.params.id, strategy.name, "new_call", {
-            title: `New Call: ${c.stockName}`,
-            body: `${c.action} ${c.stockName} - ${strategy.name}`,
-            tag: `call-${c.id}`,
-            url: `/strategies/${req.params.id}`,
-            data: { strategyId: req.params.id, callId: c.id },
-          });
+          const subPayload = buildNewCallSubscriberNotification(c, strategy.name);
+          notifyStrategySubscribers(req.params.id, strategy.name, "new_call", subPayload);
+          const wlPayload = buildNewCallWatchlistNotification(c, strategy.name);
+          notifyWatchlistUsers(req.params.id, strategy.name, "new_call_masked", wlPayload);
         }
       }
       res.json(c);
@@ -1289,13 +1295,10 @@ export async function registerRoutes(
       if (isPublished) {
         const strategy = await storage.getStrategy(req.params.id);
         if (strategy) {
-          notifyStrategySubscribers(req.params.id, strategy.name, "new_position", {
-            title: `New Position: ${p.symbol || p.segment}`,
-            body: `${p.buySell} ${p.symbol || p.segment} - ${strategy.name}`,
-            tag: `position-${p.id}`,
-            url: `/strategies/${req.params.id}`,
-            data: { strategyId: req.params.id, positionId: p.id },
-          });
+          const subPayload = buildNewPositionSubscriberNotification(p, strategy.name);
+          notifyStrategySubscribers(req.params.id, strategy.name, "new_position", subPayload);
+          const wlPayload = buildNewPositionWatchlistNotification(p, strategy.name);
+          notifyWatchlistUsers(req.params.id, strategy.name, "new_position_masked", wlPayload);
         }
       }
       res.json(p);
@@ -1349,16 +1352,11 @@ export async function registerRoutes(
       });
       if (call.isPublished && (targetPrice !== undefined || stopLoss !== undefined)) {
         const changes: string[] = [];
-        if (stopLoss !== undefined && stopLoss !== call.stopLoss) changes.push(`SL: ${stopLoss}`);
-        if (targetPrice !== undefined && targetPrice !== call.targetPrice) changes.push(`Target: ${targetPrice}`);
+        if (stopLoss !== undefined && stopLoss !== call.stopLoss) changes.push(`Stop Loss: ₹${stopLoss}`);
+        if (targetPrice !== undefined && targetPrice !== call.targetPrice) changes.push(`Target: ₹${targetPrice}`);
         if (changes.length > 0) {
-          notifyStrategySubscribers(call.strategyId, strategy.name, "call_update", {
-            title: `Alert: ${call.stockName} Updated`,
-            body: `${changes.join(", ")} - ${strategy.name}`,
-            tag: `call-update-${call.id}`,
-            url: `/strategies/${call.strategyId}`,
-            data: { strategyId: call.strategyId, callId: call.id },
-          });
+          const updatePayload = buildCallUpdateSubscriberNotification(call, changes, strategy.name);
+          notifyStrategySubscribers(call.strategyId, strategy.name, "call_update", updatePayload);
         }
       }
       res.json(updated);
@@ -1394,15 +1392,10 @@ export async function registerRoutes(
         exitDate: new Date(),
       });
       if (call.isPublished) {
-        const gain = Number(gainPercent);
-        const emoji = gain >= 0 ? "Profit" : "Loss";
-        notifyStrategySubscribers(call.strategyId, strategy.name, "call_closed", {
-          title: `Call Closed: ${call.stockName}`,
-          body: `${emoji} ${Math.abs(gain)}% | Exit at ${exitPrice} - ${strategy.name}`,
-          tag: `call-close-${call.id}`,
-          url: `/strategies/${call.strategyId}`,
-          data: { strategyId: call.strategyId, callId: call.id },
-        });
+        const subPayload = buildCallClosedSubscriberNotification(call, exitPrice, gainPercent, reason, strategy.name);
+        notifyStrategySubscribers(call.strategyId, strategy.name, "call_closed", subPayload);
+        const wlPayload = buildCallClosedWatchlistNotification(call, gainPercent, strategy.name);
+        notifyWatchlistUsers(call.strategyId, strategy.name, "call_closed_masked", wlPayload);
       }
       res.json(updated);
     } catch (err: any) {
@@ -1461,13 +1454,10 @@ export async function registerRoutes(
         publishMode: "live",
         isPublished: true,
       });
-      notifyStrategySubscribers(call.strategyId, strategy.name, "new_call", {
-        title: `New Call: ${call.stockName}`,
-        body: `${call.action} ${call.stockName} - ${strategy.name}`,
-        tag: `call-${call.id}`,
-        url: `/strategies/${call.strategyId}`,
-        data: { strategyId: call.strategyId, callId: call.id },
-      });
+      const subPayload = buildNewCallSubscriberNotification(call, strategy.name);
+      notifyStrategySubscribers(call.strategyId, strategy.name, "new_call", subPayload);
+      const wlPayload = buildNewCallWatchlistNotification(call, strategy.name);
+      notifyWatchlistUsers(call.strategyId, strategy.name, "new_call_masked", wlPayload);
       res.json(updated);
     } catch (err: any) {
       res.status(500).send(err.message);
@@ -1492,13 +1482,10 @@ export async function registerRoutes(
         publishMode: "live",
         isPublished: true,
       });
-      notifyStrategySubscribers(pos.strategyId, strategy.name, "new_position", {
-        title: `New Position: ${pos.symbol || pos.segment}`,
-        body: `${pos.buySell} ${pos.symbol || pos.segment} - ${strategy.name}`,
-        tag: `position-${pos.id}`,
-        url: `/strategies/${pos.strategyId}`,
-        data: { strategyId: pos.strategyId, positionId: pos.id },
-      });
+      const subPayload = buildNewPositionSubscriberNotification(pos, strategy.name);
+      notifyStrategySubscribers(pos.strategyId, strategy.name, "new_position", subPayload);
+      const wlPayload = buildNewPositionWatchlistNotification(pos, strategy.name);
+      notifyWatchlistUsers(pos.strategyId, strategy.name, "new_position_masked", wlPayload);
       res.json(updated);
     } catch (err: any) {
       res.status(500).send(err.message);
@@ -1524,16 +1511,11 @@ export async function registerRoutes(
       });
       if (pos.isPublished && (target !== undefined || stopLoss !== undefined)) {
         const changes: string[] = [];
-        if (stopLoss !== undefined && stopLoss !== pos.stopLoss) changes.push(`SL: ${stopLoss}`);
-        if (target !== undefined && target !== pos.target) changes.push(`Target: ${target}`);
+        if (stopLoss !== undefined && stopLoss !== pos.stopLoss) changes.push(`Stop Loss: ₹${stopLoss}`);
+        if (target !== undefined && target !== pos.target) changes.push(`Target: ₹${target}`);
         if (changes.length > 0) {
-          notifyStrategySubscribers(pos.strategyId, strategy.name, "position_update", {
-            title: `Alert: ${pos.symbol || pos.segment} Updated`,
-            body: `${changes.join(", ")} - ${strategy.name}`,
-            tag: `position-update-${pos.id}`,
-            url: `/strategies/${pos.strategyId}`,
-            data: { strategyId: pos.strategyId, positionId: pos.id },
-          });
+          const updatePayload = buildPositionUpdateSubscriberNotification(pos, changes, strategy.name);
+          notifyStrategySubscribers(pos.strategyId, strategy.name, "position_update", updatePayload);
         }
       }
       res.json(updated);
@@ -1568,15 +1550,10 @@ export async function registerRoutes(
         gainPercent: gainPercent,
       });
       if (pos.isPublished) {
-        const gain = Number(gainPercent || 0);
-        const result = gain >= 0 ? "Profit" : "Loss";
-        notifyStrategySubscribers(pos.strategyId, strategy.name, "position_closed", {
-          title: `Position Closed: ${pos.symbol || pos.segment}`,
-          body: `${result} ${Math.abs(gain)}% | Exit at ${exitPx} - ${strategy.name}`,
-          tag: `position-close-${pos.id}`,
-          url: `/strategies/${pos.strategyId}`,
-          data: { strategyId: pos.strategyId, positionId: pos.id },
-        });
+        const subPayload = buildPositionClosedSubscriberNotification(pos, exitPx, gainPercent || "0", strategy.name);
+        notifyStrategySubscribers(pos.strategyId, strategy.name, "position_closed", subPayload);
+        const wlPayload = buildPositionClosedWatchlistNotification(pos, gainPercent || "0", strategy.name);
+        notifyWatchlistUsers(pos.strategyId, strategy.name, "position_closed_masked", wlPayload);
       }
       res.json(updated);
     } catch (err: any) {
@@ -2737,11 +2714,16 @@ export async function registerRoutes(
       const allNotifications = await storage.getRecentNotifications(100);
       const userSubs = await storage.getSubscriptionsByUserId(req.session.userId!);
       const subscribedStrategyIds = new Set(userSubs.filter(s => s.status === "active" && s.strategyId).map(s => s.strategyId));
+      const userWatchlist = await storage.getWatchlistByUser(req.session.userId!);
+      const watchlistedStrategyIds = new Set(userWatchlist.filter(w => w.itemType === "strategy").map(w => w.itemId));
 
       const filtered = allNotifications.filter(n => {
         if (n.targetScope === "all_users" || n.targetScope === "all_visitors") return true;
         if (n.targetScope === "strategy_subscribers" && n.strategyId) {
           return subscribedStrategyIds.has(n.strategyId);
+        }
+        if (n.targetScope === "strategy_watchlist" && n.strategyId) {
+          return watchlistedStrategyIds.has(n.strategyId) && !subscribedStrategyIds.has(n.strategyId);
         }
         return false;
       });
