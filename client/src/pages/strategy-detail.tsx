@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
-import { TrendingUp, Calendar, BarChart3, Star, Lock, Zap, Shield, Eye, ArrowUp, ArrowDown, Unlock, Package, FileText, RefreshCw, IndianRupee, CalendarDays, Layers } from "lucide-react";
+import { TrendingUp, Calendar, BarChart3, Star, Lock, Zap, Shield, ShieldCheck, Eye, ArrowUp, ArrowDown, Unlock, Package, FileText, RefreshCw, IndianRupee, CalendarDays, Layers, Fingerprint } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   AlertDialog,
@@ -113,7 +113,14 @@ export default function StrategyDetail() {
     enabled: !!id,
   });
 
-  const { data: subStatus } = useQuery<{ subscribed: boolean }>({
+  const { data: subStatus } = useQuery<{
+    subscribed: boolean;
+    subscriptionId?: string;
+    ekycDone?: boolean;
+    riskProfilingDone?: boolean;
+    requiresRiskProfiling?: boolean;
+    allComplianceDone?: boolean;
+  }>({
     queryKey: ["/api/strategies", id, "subscription-status"],
     queryFn: async () => {
       const res = await fetch(`/api/strategies/${id}/subscription-status`);
@@ -127,7 +134,8 @@ export default function StrategyDetail() {
   const isSubscribed = subStatus?.subscribed || false;
   const isAdvisor = user?.role === "advisor";
   const isAdmin = user?.role === "admin";
-  const canViewActiveCalls = isSubscribed || isAdvisor || isAdmin;
+  const compliancePending = isSubscribed && subStatus?.requiresRiskProfiling && !subStatus?.riskProfilingDone;
+  const canViewActiveCalls = (isSubscribed && !compliancePending) || isAdvisor || isAdmin;
 
   const { data: basketConstituents } = useQuery<BasketConstituent[]>({
     queryKey: ["/api/strategies", id, "basket", "constituents"],
@@ -611,24 +619,54 @@ export default function StrategyDetail() {
           </CardHeader>
           <CardContent>
             {!canViewActiveCalls ? (
-              <div className="text-center py-8 space-y-3" data-testid="locked-active-calls">
-                <div className="w-16 h-16 rounded-full bg-muted/80 flex items-center justify-center mx-auto">
-                  <Lock className="w-8 h-8 text-muted-foreground" />
+              compliancePending ? (
+                <div className="text-center py-8 space-y-3" data-testid="locked-compliance-pending">
+                  <div className="w-16 h-16 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mx-auto">
+                    <ShieldCheck className="w-8 h-8 text-amber-600 dark:text-amber-400" />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="font-semibold text-amber-800 dark:text-amber-300">Complete Risk Profiling to Access Recommendations</p>
+                    <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                      You are subscribed, but your risk profiling is incomplete. Complete it to unlock live recommendations for this strategy.
+                    </p>
+                  </div>
+                  {!subStatus?.ekycDone ? (
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground">Complete eKYC first, then risk profiling.</p>
+                      <Link href={`/ekyc?subscriptionId=${subStatus?.subscriptionId}`}>
+                        <Button data-testid="button-compliance-ekyc">
+                          <Fingerprint className="w-4 h-4 mr-1" /> Complete eKYC First
+                        </Button>
+                      </Link>
+                    </div>
+                  ) : (
+                    <Link href={`/risk-profiling?subscriptionId=${subStatus?.subscriptionId}`}>
+                      <Button data-testid="button-compliance-risk-profiling">
+                        <ShieldCheck className="w-4 h-4 mr-1" /> Complete Risk Profiling
+                      </Button>
+                    </Link>
+                  )}
                 </div>
-                <div className="space-y-1">
-                  <p className="font-medium">Subscribe to view active recommendations</p>
-                  <p className="text-sm text-muted-foreground max-w-md mx-auto">
-                    Active trades and live calls are only available to subscribers. Subscribe now to get real-time trade alerts.
-                  </p>
+              ) : (
+                <div className="text-center py-8 space-y-3" data-testid="locked-active-calls">
+                  <div className="w-16 h-16 rounded-full bg-muted/80 flex items-center justify-center mx-auto">
+                    <Lock className="w-8 h-8 text-muted-foreground" />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="font-medium">Subscribe to view active recommendations</p>
+                    <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                      Active trades and live calls are only available to subscribers. Subscribe now to get real-time trade alerts.
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-center gap-4 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1"><Eye className="w-3 h-3" /> {activeCalls.length} active call{activeCalls.length !== 1 ? "s" : ""}</span>
+                    <span className="flex items-center gap-1"><Shield className="w-3 h-3" /> SEBI Registered</span>
+                  </div>
+                  <Button onClick={handleSubscribe} data-testid="button-subscribe-unlock">
+                    Subscribe to Unlock
+                  </Button>
                 </div>
-                <div className="flex items-center justify-center gap-4 text-xs text-muted-foreground">
-                  <span className="flex items-center gap-1"><Eye className="w-3 h-3" /> {activeCalls.length} active call{activeCalls.length !== 1 ? "s" : ""}</span>
-                  <span className="flex items-center gap-1"><Shield className="w-3 h-3" /> SEBI Registered</span>
-                </div>
-                <Button onClick={handleSubscribe} data-testid="button-subscribe-unlock">
-                  Subscribe to Unlock
-                </Button>
-              </div>
+              )
             ) : (activeCalls.length === 0 && activePositions.length === 0) ? (
               <div className="text-center py-6 text-sm text-muted-foreground">
                 <p>No active trades at the moment. New calls will appear here.</p>

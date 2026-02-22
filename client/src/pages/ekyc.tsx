@@ -20,6 +20,78 @@ type EkycStatus = {
   pan: { status: string; panNumber: string; panName: string; verifiedAt: string } | null;
 };
 
+function EkycCompleteStep({ subscriptionId, aadhaarVerified, panVerified }: { subscriptionId: string; aadhaarVerified: boolean; panVerified: boolean }) {
+  const [, navigate] = useLocation();
+  const { data: rpCheck, isLoading: rpLoading } = useQuery<{ requiresRiskProfiling: boolean; completed: boolean }>({
+    queryKey: ["/api/risk-profiling/check", subscriptionId],
+    queryFn: async () => {
+      const res = await fetch(`/api/risk-profiling/check?subscriptionId=${subscriptionId}`, { credentials: "include" });
+      if (!res.ok) return { requiresRiskProfiling: false, completed: false };
+      return res.json();
+    },
+    enabled: !!subscriptionId,
+  });
+
+  const needsRiskProfiling = rpCheck?.requiresRiskProfiling && !rpCheck?.completed;
+
+  return (
+    <Card>
+      <CardContent className="py-10 text-center space-y-4">
+        <CheckCircle2 className="w-16 h-16 mx-auto text-green-500" data-testid="icon-ekyc-complete" />
+        <div className="space-y-1">
+          <h2 className="text-xl font-bold" data-testid="text-ekyc-complete">eKYC Verification Complete</h2>
+          <p className="text-sm text-muted-foreground">
+            Your identity has been verified successfully.
+            {needsRiskProfiling
+              ? " Please complete your Risk Profiling to access strategy recommendations."
+              : " You can now access your subscribed strategy recommendations."}
+          </p>
+        </div>
+        <div className="flex items-center justify-center gap-2 flex-wrap">
+          {aadhaarVerified && (
+            <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 no-default-hover-elevate no-default-active-elevate">
+              <Fingerprint className="w-3 h-3 mr-1" /> Aadhaar Verified
+            </Badge>
+          )}
+          {panVerified && (
+            <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 no-default-hover-elevate no-default-active-elevate">
+              <CreditCard className="w-3 h-3 mr-1" /> PAN Verified
+            </Badge>
+          )}
+        </div>
+
+        {needsRiskProfiling && (
+          <div className="p-4 rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 space-y-2">
+            <div className="flex items-center justify-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+              <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Risk Profiling Required</p>
+            </div>
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              You must complete your risk profile before you can access live recommendations. This ensures you receive investment advice suitable for your risk appetite.
+            </p>
+            <Button onClick={() => navigate(`/risk-profiling?subscriptionId=${subscriptionId}`)} className="mt-2" data-testid="button-ekyc-to-risk-profiling">
+              <ShieldCheck className="w-4 h-4 mr-1" />
+              Complete Risk Profiling Now
+            </Button>
+          </div>
+        )}
+
+        {rpLoading ? (
+          <Loader2 className="w-5 h-5 mx-auto animate-spin text-muted-foreground" />
+        ) : !needsRiskProfiling ? (
+          <Button onClick={() => navigate("/investor-dashboard")} data-testid="button-ekyc-dashboard">
+            Go to Dashboard
+          </Button>
+        ) : (
+          <Button variant="outline" size="sm" onClick={() => navigate("/investor-dashboard")} data-testid="button-ekyc-dashboard-later">
+            I'll do it later
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function EkycPage() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -356,32 +428,11 @@ export default function EkycPage() {
         )}
 
         {step === "complete" && (
-          <Card>
-            <CardContent className="py-10 text-center space-y-4">
-              <CheckCircle2 className="w-16 h-16 mx-auto text-green-500" data-testid="icon-ekyc-complete" />
-              <div className="space-y-1">
-                <h2 className="text-xl font-bold" data-testid="text-ekyc-complete">eKYC Verification Complete</h2>
-                <p className="text-sm text-muted-foreground">
-                  Your identity has been verified successfully. You can now access your subscribed strategy recommendations.
-                </p>
-              </div>
-              <div className="flex items-center justify-center gap-2 flex-wrap">
-                {aadhaarVerified && (
-                  <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 no-default-hover-elevate no-default-active-elevate">
-                    <Fingerprint className="w-3 h-3 mr-1" /> Aadhaar Verified
-                  </Badge>
-                )}
-                {panVerified && (
-                  <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 no-default-hover-elevate no-default-active-elevate">
-                    <CreditCard className="w-3 h-3 mr-1" /> PAN Verified
-                  </Badge>
-                )}
-              </div>
-              <Button onClick={() => navigate("/investor-dashboard")} data-testid="button-ekyc-dashboard">
-                Go to Dashboard
-              </Button>
-            </CardContent>
-          </Card>
+          <EkycCompleteStep
+            subscriptionId={subscriptionId}
+            aadhaarVerified={aadhaarVerified}
+            panVerified={panVerified}
+          />
         )}
       </div>
       <Footer />

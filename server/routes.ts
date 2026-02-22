@@ -1620,7 +1620,17 @@ export async function registerRoutes(
   app.get("/api/strategies/:id/subscription-status", requireAuth, async (req, res) => {
     try {
       const sub = await storage.getUserSubscriptionForStrategy(req.session.userId!, req.params.id as string);
-      res.json({ subscribed: !!sub });
+      if (!sub) return res.json({ subscribed: false });
+      const advisor = await storage.getUser(sub.advisorId);
+      const requiresRiskProfiling = advisor?.requireRiskProfiling || false;
+      res.json({
+        subscribed: true,
+        subscriptionId: sub.id,
+        ekycDone: sub.ekycDone || false,
+        riskProfilingDone: sub.riskProfiling || false,
+        requiresRiskProfiling,
+        allComplianceDone: (sub.ekycDone || false) && (!requiresRiskProfiling || (sub.riskProfiling || false)),
+      });
     } catch (err: any) {
       res.status(500).send(err.message);
     }
@@ -1950,6 +1960,7 @@ export async function registerRoutes(
         const strategy = sub.strategyId ? await storage.getStrategy(sub.strategyId) : null;
         const plan = sub.planId ? await storage.getPlan(sub.planId) : null;
         const advisor = strategy?.advisorId ? await storage.getUser(strategy.advisorId) : null;
+        const requiresRiskProfiling = advisor?.requireRiskProfiling || false;
         return {
           ...sub,
           strategyName: strategy?.name || "",
@@ -1965,6 +1976,7 @@ export async function registerRoutes(
           planName: plan?.name || "",
           planDuration: plan?.durationDays ? `${plan.durationDays} days` : "",
           planPrice: plan?.amount || "0",
+          requiresRiskProfiling,
         };
       }));
       res.json(enriched);
@@ -1982,10 +1994,11 @@ export async function registerRoutes(
       for (const sub of activeSubs) {
         if (!sub.strategyId) continue;
         const strategy = await storage.getStrategy(sub.strategyId);
+        const advisor = strategy?.advisorId ? await storage.getUser(strategy.advisorId) : null;
+        if (advisor?.requireRiskProfiling && !sub.riskProfiling) continue;
         const subDate = sub.createdAt ? new Date(sub.createdAt) : new Date(0);
         const strategyCalls = await storage.getCallsByStrategy(sub.strategyId);
         const strategyPositions = await storage.getPositionsByStrategy(sub.strategyId);
-        const advisor = strategy?.advisorId ? await storage.getUser(strategy.advisorId) : null;
         const advisorName = advisor?.companyName || "";
         const strategyType = strategy?.type || "";
         const filteredCalls = strategyCalls.filter(c => {

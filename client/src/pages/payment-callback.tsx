@@ -121,59 +121,56 @@ export default function PaymentCallbackPage() {
                 <div className="space-y-2">
                   <h2 className="text-xl font-bold" data-testid="text-payment-success">Payment Successful!</h2>
                   <p className="text-sm text-muted-foreground">
-                    Your subscription has been activated. You now have full access to the strategy's recommendations.
+                    Your subscription has been activated. Complete the remaining steps below to access live recommendations.
                   </p>
                 </div>
 
                 {subscriptionId && (
-                  <div className="p-4 rounded-md border border-primary/30 bg-primary/5 space-y-2">
-                    <div className="flex items-center justify-center gap-2">
-                      <Fingerprint className="w-5 h-5 text-primary" />
-                      <p className="text-sm font-medium">Complete eKYC Verification</p>
+                  <div className="space-y-3">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Next Steps</p>
+
+                    <div className="flex items-start gap-3 p-4 rounded-md border border-primary/30 bg-primary/5">
+                      <div className="flex items-center justify-center w-7 h-7 rounded-full bg-primary text-primary-foreground font-bold text-xs shrink-0">1</div>
+                      <div className="flex-1 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Fingerprint className="w-4 h-4 text-primary" />
+                          <p className="text-sm font-medium">Complete eKYC Verification</p>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Verify your identity using Aadhaar and PAN as per SEBI requirements.
+                        </p>
+                        <Link href={`/ekyc?subscriptionId=${subscriptionId}`}>
+                          <Button size="sm" data-testid="button-complete-ekyc">
+                            <Fingerprint className="w-4 h-4 mr-1" />
+                            Complete eKYC
+                          </Button>
+                        </Link>
+                      </div>
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      Verify your identity using Aadhaar and PAN to comply with SEBI requirements for advisory services.
-                    </p>
-                    <Link href={`/ekyc?subscriptionId=${subscriptionId}`}>
-                      <Button className="mt-2" data-testid="button-complete-ekyc">
-                        <Fingerprint className="w-4 h-4 mr-1" />
-                        Complete eKYC
-                      </Button>
-                    </Link>
+
+                    {riskProfilingRequired && !riskProfilingCompleted && (
+                      <div className="flex items-start gap-3 p-4 rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30">
+                        <div className="flex items-center justify-center w-7 h-7 rounded-full bg-amber-500 text-white font-bold text-xs shrink-0">2</div>
+                        <div className="flex-1 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <ShieldCheck className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                            <p className="text-sm font-medium text-amber-800 dark:text-amber-300">Complete Risk Profiling</p>
+                          </div>
+                          <p className="text-xs text-amber-700 dark:text-amber-400">
+                            Complete eKYC first, then risk profiling will be available. Your access to live recommendations will be restricted until risk profiling is done.
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
-                {riskProfilingRequired && !riskProfilingCompleted && subscriptionId && (
-                  <div className="p-4 rounded-md border border-accent/30 bg-accent/5 space-y-2">
-                    <div className="flex items-center justify-center gap-2">
-                      <ShieldCheck className="w-5 h-5 text-accent" />
-                      <p className="text-sm font-medium">Risk Profiling Required</p>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Your advisor requires risk profiling to be completed. This helps ensure you receive suitable investment recommendations.
-                    </p>
-                    <Link href={`/risk-profiling?subscriptionId=${subscriptionId}`}>
-                      <Button className="mt-2" data-testid="button-complete-risk-profile">
-                        <ShieldCheck className="w-4 h-4 mr-1" />
-                        Complete Risk Profile
-                      </Button>
-                    </Link>
-                  </div>
-                )}
-
-                <div className="flex items-center justify-center gap-3 flex-wrap">
+                <div className="flex items-center justify-center gap-3 flex-wrap pt-2">
                   <Link href="/investor-dashboard">
-                    <Button variant={riskProfilingRequired && !riskProfilingCompleted ? "outline" : "default"} data-testid="button-go-dashboard">
+                    <Button variant="outline" size="sm" data-testid="button-go-dashboard">
                       Go to Dashboard
                     </Button>
                   </Link>
-                  {strategyId && (
-                    <Link href={`/strategies/${strategyId}`}>
-                      <Button variant="outline" data-testid="button-view-strategy">
-                        View Strategy
-                      </Button>
-                    </Link>
-                  )}
                 </div>
               </>
             )}

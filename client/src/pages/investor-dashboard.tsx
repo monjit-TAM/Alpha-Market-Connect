@@ -8,7 +8,7 @@ import { Footer } from "@/components/footer";
 import { useAuth } from "@/lib/auth";
 import { useLocation, Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
-import { TrendingUp, TrendingDown, ArrowUp, ArrowDown, Calendar, Shield, Zap, BarChart3, Eye, Heart, Bell, X, Fingerprint } from "lucide-react";
+import { TrendingUp, TrendingDown, ArrowUp, ArrowDown, Calendar, Shield, ShieldCheck, AlertTriangle, Zap, BarChart3, Eye, Heart, Bell, X, Fingerprint } from "lucide-react";
 import type { Call, Position, Subscription, User, Strategy } from "@shared/schema";
 import { apiRequest, queryClient as qc } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -39,6 +39,7 @@ interface EnrichedSubscription extends Subscription {
   planName: string;
   planDuration: string;
   planPrice: string;
+  requiresRiskProfiling: boolean;
 }
 
 interface EnrichedCall extends Call {
@@ -227,6 +228,49 @@ export default function InvestorDashboard() {
           </Link>
         </div>
 
+        {subscriptions && subscriptions.filter(s => s.status === "active" && s.requiresRiskProfiling && !s.riskProfiling).map(sub => (
+          <Card key={`rp-${sub.id}`} className="border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/20" data-testid={`banner-risk-profiling-${sub.id}`}>
+            <CardContent className="p-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                </div>
+                <div className="flex-1 min-w-0 space-y-1">
+                  {!sub.ekycDone ? (
+                    <>
+                      <h3 className="font-semibold text-amber-900 dark:text-amber-200 text-sm">Compliance Pending - {sub.strategyName}</h3>
+                      <p className="text-xs text-amber-700 dark:text-amber-400">
+                        Complete eKYC and risk profiling to access live recommendations for <strong>{sub.strategyName}</strong>.
+                      </p>
+                      <div className="pt-2">
+                        <Link href={`/ekyc?subscriptionId=${sub.id}`}>
+                          <Button size="sm" data-testid={`button-ekyc-then-rp-${sub.id}`}>
+                            <Fingerprint className="w-3.5 h-3.5 mr-1" /> Complete eKYC First
+                          </Button>
+                        </Link>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <h3 className="font-semibold text-amber-900 dark:text-amber-200 text-sm">Risk Profiling Incomplete - {sub.strategyName}</h3>
+                      <p className="text-xs text-amber-700 dark:text-amber-400">
+                        Your access to live recommendations for <strong>{sub.strategyName}</strong> is restricted until you complete your risk profile.
+                      </p>
+                      <div className="pt-2">
+                        <Link href={`/risk-profiling?subscriptionId=${sub.id}`}>
+                          <Button size="sm" data-testid={`button-complete-risk-profiling-${sub.id}`}>
+                            <ShieldCheck className="w-3.5 h-3.5 mr-1" /> Complete Risk Profiling Now
+                          </Button>
+                        </Link>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+
         {(!subscriptions || subscriptions.length === 0) ? (
           <Card>
             <CardContent className="py-12 text-center space-y-4">
@@ -282,6 +326,17 @@ export default function InvestorDashboard() {
                             <div className="flex-1 min-w-0">
                               <p className="text-xs font-medium">eKYC Pending</p>
                               <p className="text-[10px] text-muted-foreground">Complete Aadhaar & PAN verification</p>
+                            </div>
+                          </div>
+                        </Link>
+                      )}
+                      {sub.status === "active" && sub.requiresRiskProfiling && !sub.riskProfiling && sub.ekycDone && (
+                        <Link href={`/risk-profiling?subscriptionId=${sub.id}`}>
+                          <div className="flex items-center gap-2 p-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-700 cursor-pointer hover-elevate" data-testid={`banner-rp-pending-${sub.id}`}>
+                            <ShieldCheck className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-medium text-amber-800 dark:text-amber-300">Risk Profiling Pending</p>
+                              <p className="text-[10px] text-amber-600 dark:text-amber-500">Access restricted - complete to unlock</p>
                             </div>
                           </div>
                         </Link>
